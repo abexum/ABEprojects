@@ -1,4 +1,4 @@
-define(["N/url", "N/currentRecord", "N/runtime"], function (url, cr, rt) {
+define(["N/currentRecord"], function (cr) {
 
     /**
      * Client Script to perform search in forecast suitelet
@@ -8,39 +8,58 @@ define(["N/url", "N/currentRecord", "N/runtime"], function (url, cr, rt) {
      * @copyright AC Business Media
      * @author Ashe B Exum <abexum@gmail.com>
      * 
-     * @requires N/url
      * @requires N/currentRecord
-     * @requires N/runtime
      * 
      * @NApiVersion 2.x
-     * @NModuleScope SameAccount
+     * @NScriptType ClientScript
      */
     var exports = {};
+    const page = cr.get();
+
+    function pageInit() {
+        const enddateField = page.getField({fieldId: 'custpage_enddate'});
+        enddateField.isDisabled = true;
+        window.onbeforeunload = null;
+    };
+
+
+    function fieldChanged(context) {
+        console.info("fieldChanged...");
+        if (context.fieldId == 'custpage_startdate') {
+            console.info("startFieldChanged...");
+            const startdate = page.getValue({fieldId: 'custpage_startdate'});
+            const date = new Date(startdate);
+            const enddate = new Date(startdate.getFullYear(), date.getMonth() + 1, 0);
+
+            page.setValue({
+                fieldId: 'custpage_enddate',
+                value: enddate
+            });
+        }
+    };
 
     function performSearch() {
+        const page = cr.get();
         console.info("Performing Forecast Search...");
 
-        const page = cr.get();
-        // TODO make these pull the selected value and not the default
-        const salesrepfilter = page.getValue({fieldId: 'custpage_salesrep'});
-        const propertyfilter = page.getValue({fieldId: 'custpage_property'});
-        const startDate = page.getValue({fieldId: 'custpage_startdate'});
-        const endDate = page.getValue({fieldId: 'custpage_enddate'});
-
-
-        // const scriptObj = rt.getCurrentScript();
-
-        // const salesrepfilter = scriptObj.getParameter({name: 'custpage_salesrep'});
-        // const propertyfilter = scriptObj.getParameter({name: 'custpage_property'});
-        // const startDate = scriptObj.getParameter({name: 'custpage_startdate'});
-        // const endDate = scriptObj.getParameter({name: 'custpage_enddate'});
+        const salesrep = page.getValue({fieldId: 'custpage_salesrep'});
+        const property = page.getValue({fieldId: 'custpage_property'});
+        const startdate = page.getValue({fieldId: 'custpage_startdate'});
+        const enddate = page.getValue({fieldId: 'custpage_enddate'});
 
         const filteredURL = new URL(document.location.href);
 
-        window.onbeforeunload = null;
-        window.location.replace(filteredURL+'&salesrep='+salesrepfilter+'&property='+propertyfilter+'&startdate='+startDate+'&enddate='+endDate);
+        filteredURL.searchParams.set('salesrep', salesrep);
+        filteredURL.searchParams.set('property', property);
+        filteredURL.searchParams.set('startdate', startdate);
+        filteredURL.searchParams.set('enddate', enddate);
+
+        window.location.replace(filteredURL);
     };
 
+    exports.pageInit = pageInit;
     exports.performSearch = performSearch;
+    exports.fieldChanged = fieldChanged;
+
     return exports;
 });

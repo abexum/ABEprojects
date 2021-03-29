@@ -40,7 +40,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
      * @function onRequest
      */
 
-    const opportunityFields = [
+    const commonFields = [
         { 
             id: 'tranid',
             label: 'Transaction ID',
@@ -52,8 +52,18 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             type: ui.FieldType.TEXT
         },
         { 
+            id: 'class',
+            label: 'Property',
+            type: ui.FieldType.TEXT
+        },
+        { 
             id: 'trandate',
             label: 'Date',
+            type: ui.FieldType.DATE
+        },
+        {
+            id: 'custcol_agency_mf_flight_end_date',
+            label: 'Flight End',
             type: ui.FieldType.DATE
         },
         { 
@@ -61,6 +71,8 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             label: 'Client',
             type: ui.FieldType.TEXT
         },
+    ];
+    const opportunityFields = [
         { 
             id: 'entitystatus',
             label: 'Status',
@@ -71,6 +83,11 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             label: 'Probability',
             type: ui.FieldType.PERCENT
         },
+        { 
+            id: 'custbody_solupay_batchamount',
+            label: 'Amount',
+            type: ui.FieldType.CURRENCY
+        },
         // { 
         //     id: 'projectedtotal',
         //     label: 'Item Total',
@@ -78,26 +95,6 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
         // }
     ];
     const proposalFields = [
-        { 
-            id: 'tranid',
-            label: 'Transaction ID',
-            type: ui.FieldType.PASSWORD
-        },
-        { 
-            id: 'salesrep',
-            label: 'Sales Rep',
-            type: ui.FieldType.TEXT
-        },
-        { 
-            id: 'trandate',
-            label: 'Date',
-            type: ui.FieldType.DATE
-        },
-        { 
-            id: 'entity',
-            label: 'Client',
-            type: ui.FieldType.TEXT
-        },
         { 
             id: 'entitystatus',
             label: 'Status',
@@ -121,49 +118,34 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
     ];
     const orderFields = [
         { 
-            id: 'tranid',
-            label: 'Transaction ID',
-            type: ui.FieldType.PASSWORD
-        },
-        { 
-            id: 'salesrep',
-            label: 'Sales Rep',
-            type: ui.FieldType.TEXT
-        },
-        { 
-            id: 'trandate',
-            label: 'Date',
-            type: ui.FieldType.DATE
-        },
-        { 
-            id: 'entity',
-            label: 'Client',
-            type: ui.FieldType.TEXT
-        },
-        { 
             id: 'total',
             label: 'Total',
             type: ui.FieldType.CURRENCY
-        }
+        },
+        { 
+            id: 'custbody_solupay_batchamount',
+            label: 'Amount',
+            type: ui.FieldType.CURRENCY
+        },
     ];
 
     const typesDictionary = {
         opportunity: {
             id: 'tranid',
             label: 'Opportunities',
-            fields: opportunityFields,
+            fields: commonFields.concat(opportunityFields),
             searchFilter: ['Opprtnty']
         },
         estimate: {
             id: 'tranid',
             label: 'Proposals',
-            fields: proposalFields,
+            fields: commonFields.concat(proposalFields),
             searchFilter: ['Estimate']
         },
         salesorder: {
             id: 'tranid',
             label: 'Orders',
-            fields: orderFields,
+            fields: commonFields.concat(orderFields),
             searchFilter: ['SalesOrd']
         },
     };
@@ -172,10 +154,10 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
         log.audit({title: 'Request received.'});
 
         var page = ui.createForm({
-            title : 'Forecast Suitelet'
+            title: 'Forecast Suitelet'
         });
 
-        // const filter = getFilter(context.request);
+        var filter = getFilter(context.request);
 
         page.clientScriptModulePath = "./sandbox-forecast-cl.js";
         page.addButton({
@@ -184,6 +166,19 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             functionName: 'performSearch'
         });
 
+        filterOptionsSection(page, filter);
+        dateSection(page, filter);
+
+        Object.keys(typesDictionary).forEach(key => {
+            renderList(page, key, performSearch(key, filter));
+        });
+
+        context.response.writePage({
+            pageObject: page
+        });
+    };
+
+    function filterOptionsSection(page, filter) {
         const filtergroup = page.addFieldGroup({
             id : 'custpage_filtergroup',
             label : 'Filter Results'
@@ -197,7 +192,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             type: ui.FieldType.SELECT,
             container: 'custpage_filtergroup'
         });
-        getSalesReps(salesRepSearchField);
+        getSalesReps(salesRepSearchField, filter.salesrep);
 
         const propertySearchField = page.addField({
             id: 'custpage_property',
@@ -205,8 +200,10 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             type: ui.FieldType.SELECT,
             container: 'custpage_filtergroup'
         });
-        getProperties(propertySearchField);
+        getProperties(propertySearchField, filter.property);
+    };
 
+    function dateSection(page, filter) {
         const dategroup = page.addFieldGroup({
             id : 'custpage_dategroup',
             label : 'Select Dates'
@@ -219,7 +216,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             type: ui.FieldType.DATE,
             container: 'custpage_dategroup'
         });
-        startDateField.defaultValue = defaultStart();
+        startDateField.defaultValue = filter.startdate;
 
         const endDateField = page.addField({
             id: 'custpage_enddate',
@@ -227,112 +224,30 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             type: ui.FieldType.DATE,
             container: 'custpage_dategroup'
         });
-        endDateField.defaultValue = defaultEnd();
-
-        renderList(
-            page,
-            'opportunity', 
-            translate(performSearch('opportunity', getFilter(context.request, 'opportunity')))
-            );
-        renderList(
-            page,
-            'estimate',
-            translate(performSearch('estimate', getFilter(context.request, 'estimate')))
-            );
-        renderList(
-            page,
-            'salesorder',
-            translate(performSearch('salesorder', getFilter(context.request, 'salesorder')))
-            );
-
-        context.response.writePage({
-            pageObject: page
-        });
+        endDateField.defaultValue = filter.enddate;
     };
 
-    function getFilter(request, type) {
+    function getFilter(request) {
         const { salesrep, property, startdate, enddate } = request.parameters;
 
-        const startValue = (startdate) ? new Date(startdate) : defaultStart();
-        const endValue = (enddate) ? new Date(enddate) : defaultEnd();
+        log.debug({title: 'startdate', details: startdate});
+        log.debug({title: 'enddate', details: enddate});
 
-        const fStart = f.format({value: startValue, type: f.Type.DATE});
-        const fEnd = f.format({value: endValue, type: f.Type.DATE});
+        const startValue = defaultStart(startdate);
+        const endValue = defaultEnd(enddate);
 
-        log.debug({title: 'filter salesrep', details: salesrep});
-        log.debug({title: 'filter property', details: property});
-        log.debug({title: 'filter startdate', details: fStart});
-        log.debug({title: 'filter enddate', details: fEnd});
+        log.debug({title: 'startValue', details: startValue});
+        log.debug({title: 'endValue', details: endValue});
 
-        // return {
-        //     salesrep: salesrep,
-        //     property: property,
-        //     startdate: fStart,
-        //     enddate: fEnd
-        // }
-
-        let filter = [];
-
-        const subsFilter = s.createFilter({
-            name: 'subsidiary',
-            operator: s.Operator.ANYOF,
-            values: '2'
-        });
-        filter.push(subsFilter);
-
-        const typeFilter = s.createFilter({
-            name: 'type',
-            operator: s.Operator.ANYOF,
-            values: typesDictionary[type].searchFilter
-        });
-        filter.push(typeFilter);
-
-        if (salesrep) {
-            const repFilter = s.createFilter({
-                name: 'salesrep',
-                operator: s.Operator.ANYOF,
-                values: salesrep
-            });
-            filter.push(repFilter);
+        return {
+            salesrep: salesrep,
+            property: property,
+            startdate: startValue,
+            enddate: endValue
         }
-        // Make this filter on the property from the items on transaction record
-        // if (property) {
-        //     filter.push('and');
-        //     filter.push(['entity', s.Operator.ANYOF, [property]]);
-        // }
-
-        // TODO use date from items on transaction records instead of trandate
-        // if (startdate && enddate) {
-        //     const stringDates = [
-        //         f.format({value: startdate, type: f.Type.DATE}),
-        //         f.format({value: enddate, type: f.Type.DATE})
-        //     ];
-        //     const dateFilter = s.createFilter({
-        //         name: 'trandate',
-        //         operator: s.Operator.WITHIN,
-        //         values: stringDates
-        //     });
-        //     filter.push(dateFilter);
-        // }
-
-        const startFilter = s.createFilter({
-            name: 'trandate',
-            operator: s.Operator.ONORAFTER,
-            values: fStart
-        });
-        filter.push(startFilter);
-        const endFilter = s.createFilter({
-            name: 'trandate',
-            operator: s.Operator.ONORBEFORE,
-            values: fEnd
-        });
-        filter.push(endFilter);
-
-        return filter;
-    }
+    };
 
     function renderList(form, type, results) {
-
         var list = form.addSublist({
             id : 'custpage_' + type,
             type : ui.SublistType.LIST,
@@ -354,8 +269,6 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
 
         results.forEach((res, index) => {
             Object.keys(res).forEach(key => {
-                // log.debug({title: 'Result', details: JSON.stringify(res)});
-                // add value if present
                 var value = res[key]
                 if (value && key !== 'recordType' && key !== 'id') {
                     list.setSublistValue({
@@ -384,32 +297,103 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
 
     function performSearch(type, filter) {
         log.audit({title: 'Finding Transactions...'});
-        return s.create({
+        let searchResults = []
+        s.create({
             type: s.Type.TRANSACTION,
-            filters: filter,
+            filters: searchFilter(filter, type),
             columns: typesDictionary[type].fields.map(op => op.id)
-        }).run().getRange({start: 0, end: 1000});
+        }).run().each(res => {
+            searchResults.push(translate(res));
+            return true;
+        });
+        return searchResults;
     };
 
-    function getSalesReps(field) {
+    function searchFilter(filter, type) {
+        let searchFilter = [];
+
+        const subsFilter = s.createFilter({
+            name: 'subsidiary',
+            operator: s.Operator.ANYOF,
+            values: '2'
+        });
+        const typeFilter = s.createFilter({
+            name: 'type',
+            operator: s.Operator.ANYOF,
+            values: typesDictionary[type].searchFilter
+        });
+        searchFilter.push(subsFilter, typeFilter);
+
+        const { salesrep, property } = filter;
+        if (salesrep && salesrep !== '0') {
+            const repFilter = s.createFilter({
+                name: 'salesrep',
+                operator: s.Operator.ANYOF,
+                values: salesrep
+            });
+            searchFilter.push(repFilter);
+            log.debug({title: 'filter salesrep', details: salesrep});
+        }
+        if (property && property !== '0') {
+            const propertyFilter = s.createFilter({
+                name: 'class',
+                operator: s.Operator.ANYOF,
+                values: property
+            });
+            searchFilter.push(propertyFilter);
+            log.debug({title: 'filter property', details: property});
+        }
+
+        const startdate = f.format({value: filter.startdate, type: f.Type.DATE});
+        const enddate = f.format({value: filter.enddate, type: f.Type.DATE});
+        const startFilter = s.createFilter({
+            name: 'custcol_agency_mf_flight_end_date',
+            operator: s.Operator.ONORAFTER,
+            values: startdate
+        });
+        const endFilter = s.createFilter({
+            name: 'custcol_agency_mf_flight_end_date',
+            operator: s.Operator.ONORBEFORE,
+            values: enddate
+        });
+        searchFilter.push(startFilter, endFilter);
+
+        log.debug({title: 'filter startdate', details: startdate});
+        log.debug({title: 'filter enddate', details: enddate});
+
+        return searchFilter;
+    }
+
+    function getSalesReps(field, selected) {
+        field.addSelectOption({
+            value: 0,
+            text: '-- select sales rep --',
+            isSelected: false
+        });
+
         s.create({
             type: s.Type.EMPLOYEE,
             columns: ['entityid', 'issalesrep'],
             filters: ['subsidiary', s.Operator.ANYOF, ['2']]
         }).run().each(res => {
-            log.debug({title: 'Employee result', details: JSON.stringify(res)});
             if (res.getValue({name: 'issalesrep'})){
                 field.addSelectOption({
                     value: res.id,
                     text: res.getValue({name: 'entityid'}),
-                    isSelected: false
+                    isSelected: (res.id === selected)
                 });
             }
             return true;
         });
     };
 
-    function getProperties(field) {
+    function getProperties(field, selected) {
+        field.addSelectOption({
+            value: 0,
+            text: '-- select property --',
+            isSelected: false
+        });
+
         s.create({
             type: s.Type.CLASSIFICATION,
             columns: ['name'],
@@ -418,70 +402,38 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
                 ['isinactive', s.Operator.IS, ['F']]
             ]
         }).run().each(res => {
-            log.debug({title: 'Property result', details: JSON.stringify(res)});
             field.addSelectOption({
                 value: res.id,
                 text: res.getValue({name: 'name'}),
-                isSelected: false
+                isSelected: (res.id === selected)
             });
             return true;
         });
     };
 
-    function defaultStart() {
-        var date = new Date();
+    function defaultStart(start) {
+        const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
         return new Date(date.getFullYear(), date.getMonth(), 1);
     }
-    function defaultEnd() {
-        var date = new Date();
+    function defaultEnd(end) {
+        const date = (end) ? new Date(end.substring(0, end.indexOf('00:00:00'))) : new Date();
         return new Date(date.getFullYear(), date.getMonth() + 1, 0);
     }
 
-    function defaultDates(startDateField, endDateField) {
-        var date = new Date();
-        var firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
-        var lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-        startDateField.defaultValue = firstDay;
-        endDateField.defaultValue = lastDay;
-    };
-
-    // LOAD RECORD EXAMPLE (VERY SLOW)
-    // var record = r.load({
-    //     type: r.Type.EMPLOYEE,
-    //     id: res.id,
-    // });
-    // log.debug({title: 'Employee record', details: JSON.stringify(record)});
-
-    // NOT USED, optional if better than transaction search
-    // function opportunitySearch() {
-    //     log.audit({title: 'Finding Opportunities...'});
-    //     return s.create({
-    //         type: s.Type.OPPORTUNITY,
-    //         filters: [
-    //             ['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
-    //             filter
-    //         ],
-    //         columns: opportunityFields.map(op => op.id)
-    //     }).run().getRange({start: 0, end: 50});
-    // }
-
-    function translate(results) {
-        return results.map(result => {
-            // log.debug({title: 'Record raw', details: JSON.stringify(result)});
-            const fields = typesDictionary[result.recordType].fields;
-            var row = {
-                id: result.id,
-                recordType: result.recordType
-            };
-            fields.forEach(f => {
-                if (f.type === ui.FieldType.TEXT) {
-                    row[f.id] = result.getText({name: f.id});
-                } else {
-                    row[f.id] = result.getValue({name: f.id});
-                }
-            })
-            return row;
-        });
+    function translate(result) {
+        const fields = typesDictionary[result.recordType].fields;
+        var row = {
+            id: result.id,
+            recordType: result.recordType
+        };
+        fields.forEach(f => {
+            if (f.type === ui.FieldType.TEXT) {
+                row[f.id] = result.getText({name: f.id});
+            } else {
+                row[f.id] = result.getValue({name: f.id});
+            }
+        })
+        return row;
     };
 
     exports.onRequest = onRequest;
