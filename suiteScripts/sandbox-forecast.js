@@ -71,6 +71,11 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             label: 'Client',
             type: ui.FieldType.TEXT
         },
+        { 
+            id: 'amount',
+            label: 'Amount',
+            type: ui.FieldType.CURRENCY
+        }
     ];
     const opportunityFields = [
         { 
@@ -82,17 +87,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             id: 'probability',
             label: 'Probability',
             type: ui.FieldType.PERCENT
-        },
-        { 
-            id: 'custbody_solupay_batchamount',
-            label: 'Amount',
-            type: ui.FieldType.CURRENCY
-        },
-        // { 
-        //     id: 'projectedtotal',
-        //     label: 'Item Total',
-        //     type: ui.FieldType.CURRENCY
-        // }
+        }
     ];
     const proposalFields = [
         { 
@@ -118,15 +113,15 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
     ];
     const orderFields = [
         { 
+            id: 'opportunity',
+            label: 'Opportunity',
+            type: ui.FieldType.TEXT
+        },
+        { 
             id: 'total',
             label: 'Total',
             type: ui.FieldType.CURRENCY
-        },
-        { 
-            id: 'custbody_solupay_batchamount',
-            label: 'Amount',
-            type: ui.FieldType.CURRENCY
-        },
+        }
     ];
 
     const typesDictionary = {
@@ -173,10 +168,12 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             renderList(page, key, performSearch(key, filter));
         });
 
+        addQuota(page, filter);
+
         context.response.writePage({
             pageObject: page
         });
-    };
+    }
 
     function filterOptionsSection(page, filter) {
         const filtergroup = page.addFieldGroup({
@@ -201,7 +198,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             container: 'custpage_filtergroup'
         });
         getProperties(propertySearchField, filter.property);
-    };
+    }
 
     function dateSection(page, filter) {
         const dategroup = page.addFieldGroup({
@@ -224,8 +221,29 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             type: ui.FieldType.DATE,
             container: 'custpage_dategroup'
         });
+        endDateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
         endDateField.defaultValue = filter.enddate;
-    };
+    }
+
+    function addQuota(page, filter) {
+        const quotaField = page.addField({
+            id: 'custpage_quota',
+            label: 'Quota',
+            type: ui.FieldType.CURRENCY,
+            // container: 'custpage_filtergroup'
+        });
+        quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+        // quotaField.updateLayoutType({layoutType: ui.FieldLayoutType.OUTSIDEABOVE});
+        quotaField.defaultValue = findQuota(filter);
+
+        quotaField.updateBreakType({
+            breakType : ui.FieldBreakType.STARTCOL
+        });
+    }
+
+    function findQuota(filter) {
+        return 1000
+    }
 
     function getFilter(request) {
         const { salesrep, property, startdate, enddate } = request.parameters;
@@ -245,7 +263,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             startdate: startValue,
             enddate: endValue
         }
-    };
+    }
 
     function renderList(form, type, results) {
         var list = form.addSublist({
@@ -293,7 +311,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             });
         });
         return list;
-    };
+    }
 
     function performSearch(type, filter) {
         log.audit({title: 'Finding Transactions...'});
@@ -307,7 +325,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             return true;
         });
         return searchResults;
-    };
+    }
 
     function searchFilter(filter, type) {
         let searchFilter = [];
@@ -385,7 +403,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             }
             return true;
         });
-    };
+    }
 
     function getProperties(field, selected) {
         field.addSelectOption({
@@ -409,7 +427,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             });
             return true;
         });
-    };
+    }
 
     function defaultStart(start) {
         const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
@@ -434,7 +452,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             }
         })
         return row;
-    };
+    }
 
     exports.onRequest = onRequest;
     return exports;

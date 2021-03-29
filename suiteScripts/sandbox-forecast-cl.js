@@ -17,8 +17,6 @@ define(["N/currentRecord"], function (cr) {
     const page = cr.get();
 
     function pageInit() {
-        const enddateField = page.getField({fieldId: 'custpage_enddate'});
-        enddateField.isDisabled = true;
         window.onbeforeunload = null;
     };
 
