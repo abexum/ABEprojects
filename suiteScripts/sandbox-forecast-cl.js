@@ -18,6 +18,23 @@ define(["N/currentRecord"], function (cr) {
 
     function pageInit() {
         window.onbeforeunload = null;
+
+        // page.selectLine({
+        //     sublistId: 'custpage_proposal',
+        //     line: 0
+        // });
+      
+        // page.setCurrentSublistValue({
+        //     sublistId: 'custpage_proposal',
+        //     fieldId: 'custpage_recordid',
+        //     value: '12',
+        //     ignoreFieldChange: true
+        // });
+
+        // page.commitLine({
+        //     sublistId: 'custpage_proposal'
+        // });
+
     };
 
 

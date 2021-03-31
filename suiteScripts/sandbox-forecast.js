@@ -1,4 +1,5 @@
-define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/error", "N/log"], function (s, url, r, f, ui, error, log) {
+define(["N/search", "N/url", "N/task", "N/record", "N/format", "N/ui/serverWidget", "N/error", "N/log"], 
+    function (s, url, task, r, f, ui, error, log) {
 
     /**
      * Forecast Suitelet: Display Search Results in a List
@@ -10,6 +11,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
      *
      * @requires N/search
      * @requires N/url
+     * @requires N/task
      * @requires N/record
      * @requires N/format
      * @requires N/ui/serverWidget
@@ -40,12 +42,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
      * @function onRequest
      */
 
-    const commonFields = [
-        { 
-            id: 'tranid',
-            label: 'Transaction ID',
-            type: ui.FieldType.PASSWORD
-        },
+    const commonFields = type => [
         { 
             id: 'salesrep',
             label: 'Sales Rep',
@@ -57,8 +54,13 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             type: ui.FieldType.TEXT
         },
         { 
+            id: 'tranid',
+            label: type+' #',
+            type: ui.FieldType.TEXTAREA
+        },
+        { 
             id: 'trandate',
-            label: 'Date',
+            label: 'Transaction Date',
             type: ui.FieldType.DATE
         },
         {
@@ -67,14 +69,9 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             type: ui.FieldType.DATE
         },
         { 
-            id: 'entity',
-            label: 'Client',
+            id: 'custbody_advertiser1',
+            label: 'Primary Advertiser',
             type: ui.FieldType.TEXT
-        },
-        { 
-            id: 'amount',
-            label: 'Amount',
-            type: ui.FieldType.CURRENCY
         }
     ];
     const opportunityFields = [
@@ -86,40 +83,19 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
         { 
             id: 'probability',
             label: 'Probability',
-            type: ui.FieldType.PERCENT
-        }
-    ];
-    const proposalFields = [
-        { 
-            id: 'entitystatus',
-            label: 'Status',
-            type: ui.FieldType.TEXT
+            type: ui.FieldType.PERCENT // make this inline editable > saves to record when user clicks save
         },
+        // have forecast type be dropdown select as well
         { 
-            id: 'duedate',
-            label: 'Expiration Date',
-            type: ui.FieldType.DATE
-        },
-        { 
-            id: 'probability',
-            label: 'Probability',
-            type: ui.FieldType.PERCENT
-        },
-        { 
-            id: 'total',
-            label: 'Total',
+            id: 'amount',
+            label: 'Gross',
             type: ui.FieldType.CURRENCY
         }
     ];
     const orderFields = [
         { 
-            id: 'opportunity',
-            label: 'Opportunity',
-            type: ui.FieldType.TEXT
-        },
-        { 
-            id: 'total',
-            label: 'Total',
+            id: 'amount',
+            label: 'Gross',
             type: ui.FieldType.CURRENCY
         }
     ];
@@ -128,19 +104,19 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
         opportunity: {
             id: 'tranid',
             label: 'Opportunities',
-            fields: commonFields.concat(opportunityFields),
+            fields: commonFields('Opportunity').concat(opportunityFields),
             searchFilter: ['Opprtnty']
         },
         estimate: {
             id: 'tranid',
             label: 'Proposals',
-            fields: commonFields.concat(proposalFields),
+            fields: commonFields('Proposal').concat(opportunityFields),
             searchFilter: ['Estimate']
         },
         salesorder: {
             id: 'tranid',
             label: 'Orders',
-            fields: commonFields.concat(orderFields),
+            fields: commonFields('Order').concat(orderFields),
             searchFilter: ['SalesOrd']
         },
     };
@@ -225,37 +201,11 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
         endDateField.defaultValue = filter.enddate;
     }
 
-    function addQuota(page, filter) {
-        const quotaField = page.addField({
-            id: 'custpage_quota',
-            label: 'Quota',
-            type: ui.FieldType.CURRENCY,
-            // container: 'custpage_filtergroup'
-        });
-        quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
-        // quotaField.updateLayoutType({layoutType: ui.FieldLayoutType.OUTSIDEABOVE});
-        quotaField.defaultValue = findQuota(filter);
-
-        quotaField.updateBreakType({
-            breakType : ui.FieldBreakType.STARTCOL
-        });
-    }
-
-    function findQuota(filter) {
-        return 1000
-    }
-
     function getFilter(request) {
         const { salesrep, property, startdate, enddate } = request.parameters;
 
-        log.debug({title: 'startdate', details: startdate});
-        log.debug({title: 'enddate', details: enddate});
-
         const startValue = defaultStart(startdate);
         const endValue = defaultEnd(enddate);
-
-        log.debug({title: 'startValue', details: startValue});
-        log.debug({title: 'endValue', details: endValue});
 
         return {
             salesrep: salesrep,
@@ -266,47 +216,35 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
     }
 
     function renderList(form, type, results) {
+        // calculate total gross amount
+        const numOr0 = n => isNaN(parseInt(n)) ? 0 : parseInt(n);
+        const grossTotal = results.reduce((total, current) => numOr0(total) + numOr0(current.amount), 0);
         var list = form.addSublist({
             id : 'custpage_' + type,
             type : ui.SublistType.LIST,
-            label : typesDictionary[type].label + ' [' + results.length +']'
+            label : typesDictionary[type].label + ' [' + grossTotal +']'
         });
 
         const columns = typesDictionary[type].fields;
-        columns.forEach(id => {
-            list.addField(id);
-            if (id.id === 'tranid'){
-                var field = list.addField({
-                    id: 'custpage_recordid',
-                    label: 'Record',
-                    type: ui.FieldType.URL,
-                });
-                field.linkText = 'link';
-            }
-        });
+        columns.forEach(id => {list.addField(id);});
 
         results.forEach((res, index) => {
             Object.keys(res).forEach(key => {
                 var value = res[key]
                 if (value && key !== 'recordType' && key !== 'id') {
+                    if (key === 'tranid'){
+                        const link = url.resolveRecord({
+                            isEditMode: false,
+                            recordId: res.id,
+                            recordType: res.recordType,
+                        });
+                        value = '<a href="'+link+'" target="_blank">'+value+'</a>'
+                    }
                     list.setSublistValue({
                         id: key,
                         line: index,
                         value: value
                     });
-                    if (key === 'tranid'){
-                        var link = url.resolveRecord({
-                            isEditMode: false,
-                            recordId: res.id,
-                            recordType: res.recordType,
-                        });
-                        list.setSublistValue({
-                            id: 'custpage_recordid',
-                            line: index,
-                            value: link,
-                        });
-                    }
-
                 }
             });
         });
@@ -327,7 +265,7 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
         return searchResults;
     }
 
-    function searchFilter(filter, type) {
+    function searchFilter(filter, transactionType) {
         let searchFilter = [];
 
         const subsFilter = s.createFilter({
@@ -335,12 +273,15 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             operator: s.Operator.ANYOF,
             values: '2'
         });
-        const typeFilter = s.createFilter({
-            name: 'type',
-            operator: s.Operator.ANYOF,
-            values: typesDictionary[type].searchFilter
-        });
-        searchFilter.push(subsFilter, typeFilter);
+        searchFilter.push(subsFilter);
+        if (transactionType) {
+            const typeFilter = s.createFilter({
+                name: 'type',
+                operator: s.Operator.ANYOF,
+                values: typesDictionary[transactionType].searchFilter
+            });
+            searchFilter.push(typeFilter);
+        }
 
         const { salesrep, property } = filter;
         if (salesrep && salesrep !== '0') {
@@ -452,6 +393,104 @@ define(["N/search", "N/url", "N/record", "N/format", "N/ui/serverWidget", "N/err
             }
         })
         return row;
+    }
+
+    function addQuota(page, filter) {
+        const quotaField = page.addField({
+            id: 'custpage_quota',
+            label: 'Quota',
+            type: ui.FieldType.CURRENCY,
+        });
+        quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+        quotaField.defaultValue = findQuota(filter);
+
+        quotaField.updateBreakType({
+            breakType : ui.FieldBreakType.STARTCOL
+        });
+    }
+
+    function findQuota(filter) {
+
+        const month = filter.startdate.getMonth();
+        log.debug({title: 'quotaMonth', details: month});
+        const year = filter.startdate.getYear();
+        log.debug({title: 'quotaYear', details: year});
+
+        // SAVED SEARCH TO GET SAVED SEARCH ID FOR TASK
+
+        const searchFilter = [];
+        const ssFilter = s.createFilter({
+            name: 'scriptid',
+            operator: s.Operator.ANYOF,
+            values: 'customsearch_acbm_quota_search'
+        });
+        searchFilter.push(ssFilter);
+
+        const searchInternalIds = [];
+        s.create({
+            type: s.Type.SAVED_SEARCH,
+            filters: searchFilter,
+            columns: ['scriptid']
+        }).run().each(res => {
+            log.debug({title: 'savedSearchResult', details: JSON.stringify(res)});
+            searchInternalIds.push(res.id);
+            return true;
+        });
+
+        // remove the date filters
+        // var quotaFilter = [];
+        // const subsFilter = s.createFilter({
+        //     name: 'subsidiary',
+        //     operator: s.Operator.ANYOF,
+        //     values: '2'
+        // });
+        // quotaFilter.push(subsFilter);
+        // const { salesrep, property } = filter;
+        // if (salesrep && salesrep !== '0') {
+        //     const repFilter = s.createFilter({
+        //         name: 'entity',
+        //         operator: s.Operator.ANYOF,
+        //         values: salesrep
+        //     });
+        //     quotaFilter.push(repFilter);
+        // }
+        // if (property && property !== '0') {
+        //     const propertyFilter = s.createFilter({
+        //         name: 'aclass',
+        //         operator: s.Operator.ANYOF,
+        //         values: property
+        //     });
+        //     quotaFilter.push(propertyFilter);
+        // }
+
+        // TASK MODULE
+        // var quotaTask = task.create({taskType: task.TaskType.SEARCH});
+        // quotaTask.savedSearchId = 568;
+        // quotaTask.filePath = './quotaResults.csv';
+        // var quotaTaskId = quotaTask.submit();
+
+        // SEARCH DOES NOT ACCEPT QUOTA SEARCH TYPE
+        // s.create({
+        //     type: s.Type.QUOTA,
+        //     filters: quotaFilter,
+        //     columns: ['entity','aclass','month','year','amount']
+        // }).run().each(res => {
+        //     log.debug({title: 'quotaResult', details: JSON.stringify(res)});
+        //     return true;
+        // });
+
+        // SEARCH LOAD WONT ACCEPT QUOTA TYPE OR LOAD WITHOUT TYPE
+        // const quotaSearch = s.load({
+        //     id: 'customsearch_acbm_quota_search',
+        //     type: 'Quota'
+        // });
+        // let quotaArray = [];
+        // quotaSearch.run().each(res => {
+        //     log.debug({title: 'quotaResult', details: JSON.stringify(res)});
+        //     quotaArray.push(res);
+        //     return true;
+        // });
+        return quotaTaskId;
     }
 
     exports.onRequest = onRequest;
