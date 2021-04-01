@@ -1,5 +1,5 @@
-define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget", "N/error", "N/log"], 
-    function (s, url, task, file, format, ui, e, log) {
+define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidget", "N/error", "N/log"], 
+    function (s, url, task, file, format, record, ui, e, log) {
 
     /**
      * Forecast Suitelet: Display Search Results in a List
@@ -22,7 +22,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
      * @NModuleScope SameAccount
      * @NScriptType Suitelet
      */
-    var exports = {};
+    const exports = {};
 
     /**
      * <code>onRequest</code> event handler
@@ -75,11 +75,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
         }
     ];
     const opportunityFields = [
-        { 
-            id: 'entitystatus',
-            label: 'Status',
-            type: ui.FieldType.TEXT
-        },
+        // { 
+        //     id: 'entitystatus',
+        //     label: 'Status',
+        //     type: ui.FieldType.PASSWORD
+        // },
         { 
             id: 'probability',
             label: 'Probability',
@@ -91,6 +91,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
             label: 'Gross',
             type: ui.FieldType.CURRENCY
         }
+        // weighted, worst case, most likely, upside TODO
     ];
     const orderFields = [
         { 
@@ -99,6 +100,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
             type: ui.FieldType.CURRENCY
         }
     ];
+
+    const repFiltered = filter => (filter.salesrep && filter.salesrep !== '0');
+    const propFiltered = filter => (filter.property && filter.property !== '0');
 
     const typesDictionary = {
         opportunity: {
@@ -121,14 +125,16 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
         },
     };
 
+    const calcs = {weighted: 0, gross: 0, universal: 0};
+
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
 
-        var page = ui.createForm({
+        const page = ui.createForm({
             title: 'Forecast Suitelet'
         });
 
-        var filter = getFilter(context.request);
+        const filter = getFilter(context.request);
 
         page.clientScriptModulePath = "./sandbox-forecast-cl.js";
         page.addButton({
@@ -141,10 +147,12 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
         dateSection(page, filter);
 
         Object.keys(typesDictionary).forEach(key => {
-            renderList(page, key, performSearch(key, filter));
+            renderList(page, key, performSearch(key, filter), filter);
         });
 
         addQuota(page, filter);
+
+        calcSection(page);
 
         context.response.writePage({
             pageObject: page
@@ -201,6 +209,39 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
         endDateField.defaultValue = filter.enddate;
     }
 
+    function calcSection(page) {
+        page.addFieldGroup({
+            id : 'custpage_calcsgroup',
+            label : 'Forecast Calcs'
+        });
+        const weightedField = page.addField({
+            id: 'custpage_calcweight',
+            label: 'Weighted',
+            type: ui.FieldType.CURRENCY,
+            container: 'custpage_calcsgroup'
+        });
+        weightedField.defaultValue = calcs.weighted;
+        weightedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+
+        const grossField = page.addField({
+            id: 'custpage_calcgross',
+            label: 'Gross',
+            type: ui.FieldType.CURRENCY,
+            container: 'custpage_calcsgroup'
+        });
+        grossField.defaultValue = calcs.gross;
+        grossField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+
+        const universalField = page.addField({
+            id: 'custpage_calcuniversal',
+            label: 'Universal',
+            type: ui.FieldType.CURRENCY,
+            container: 'custpage_calcsgroup'
+        });
+        universalField.defaultValue = calcs.universal;
+        universalField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+    }
+
     function getFilter(request) {
         const { salesrep, property, startdate, enddate } = request.parameters;
 
@@ -215,22 +256,56 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
         }
     }
 
-    function renderList(form, type, results) {
+    function renderList(form, type, results, filter) {
         // calculate total gross amount
         const numOr0 = n => isNaN(parseInt(n)) ? 0 : parseInt(n);
         const grossTotal = results.reduce((total, current) => numOr0(total) + numOr0(current.amount), 0);
-        var list = form.addSublist({
+        const list = form.addSublist({
             id : 'custpage_' + type,
             type : ui.SublistType.LIST,
             label : typesDictionary[type].label + ' [' + grossTotal +']'
         });
 
+        const skip = id => {
+            return (repFiltered(filter) && id === 'salesrep') 
+            || (propFiltered(filter) && id === 'class');
+        };
+
         const columns = typesDictionary[type].fields;
-        columns.forEach(id => {list.addField(id);});
+        columns.forEach(id => {
+            // remove columns searched for
+            if (skip(id.id)) return;
+            // insert forecast checkbox before tranid
+            if (type !== 'salesorder' && id.id == 'tranid') {
+                const forecast = list.addField({
+                    id: 'custpage_forecast',
+                    label: 'Forecast',
+                    type: ui.FieldType.CHECKBOX,
+                });
+                forecast.defaultValue = (type === 'estimate') ? 'T' : 'F';
+            }
+            // add next column
+            const field = list.addField(id);
+            // extras for input fields
+            // entity status would go here as dropdown if needed
+            if (id.id === 'probability') {
+                field.updateDisplayType({
+                    displayType: ui.FieldDisplayType.ENTRY
+                });
+            }
+        });
+        if (type !== 'salesorder'){
+            list.addField({
+                id: 'custpage_weighted',
+                label: 'Weighted',
+                type: ui.FieldType.CURRENCY,
+            });
+        }
 
         results.forEach((res, index) => {
             Object.keys(res).forEach(key => {
-                var value = res[key]
+                if (skip(key)) return;
+                let value = res[key]
                 if (value && key !== 'recordType' && key !== 'id') {
                     if (key === 'tranid'){
                         const link = url.resolveRecord({
@@ -239,6 +314,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
                             recordType: res.recordType,
                         });
                         value = '<a href="'+link+'" target="_blank">'+value+'</a>'
+                    } else if (type !== 'salesorder' && key === 'class') {
                     }
                     list.setSublistValue({
                         id: key,
@@ -247,7 +323,22 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
                     });
                 }
             });
+            const grossnum = parseFloat(res.amount);
+            calcs.universal+= grossnum;
+            if (type !== 'salesorder') {
+                const weightvalue = grossnum*(parseFloat(res.probability)/100);
+                list.setSublistValue({
+                    id: 'custpage_weighted',
+                    line: index,
+                    value: weightvalue
+                });
+                if (type === 'estimate') {
+                    calcs.weighted+=weightvalue;
+                    calcs.gross+=grossnum;
+                }
+            }
         });
+
         return list;
     }
 
@@ -284,7 +375,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
         }
 
         const { salesrep, property } = filter;
-        if (salesrep && salesrep !== '0') {
+        if (repFiltered(filter)) {
             const repFilter = s.createFilter({
                 name: 'salesrep',
                 operator: s.Operator.ANYOF,
@@ -293,7 +384,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
             searchFilter.push(repFilter);
             log.debug({title: 'filter salesrep', details: salesrep});
         }
-        if (property && property !== '0') {
+        if (propFiltered(filter)) {
             const propertyFilter = s.createFilter({
                 name: 'class',
                 operator: s.Operator.ANYOF,
@@ -381,7 +472,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
 
     function translate(result) {
         const fields = typesDictionary[result.recordType].fields;
-        var row = {
+        const row = {
             id: result.id,
             recordType: result.recordType
         };
@@ -401,12 +492,12 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
             label: 'Quota',
             type: ui.FieldType.CURRENCY,
         });
-        quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
         quotaField.defaultValue = findQuota(filter);
 
         quotaField.updateBreakType({
             breakType : ui.FieldBreakType.STARTCOL
         });
+        quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
     }
 
     function findQuota(filter) {
@@ -458,25 +549,47 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
         };
         const csvObjs = processCSV(quotaCSV).map(obj => lessInfo(obj));
 
+        const getRepName = (id) => {
+            if (!id || id === '0') return '';
+            const employeeRecord = record.load({type: record.Type.EMPLOYEE, id: id});
+            log.debug({
+                title: 'repRecord',
+                details: JSON.stringify(employeeRecord)
+            });
+            return employeeRecord.getValue({fieldId: 'entityid'});
+        }
+        const getPropertyName = (id) => {
+            if (!id || id === '0') return '';
+            const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
+            log.debug({
+                title: 'propertyRecord',
+                details: JSON.stringify(propertyRecord)
+            });
+            return propertyRecord.getValue({fieldId: 'name'});
+        }
 
         const { salesrep, property } = filter;
+        const repName = getRepName(salesrep);
+        const propertyName = getPropertyName(property);
+
+        log.debug({
+            title: 'repName',
+            details: repName
+        });
+        
+        log.debug({
+            title: 'propertyName',
+            details: propertyName
+        });
+        
         csvObjs.forEach(quota => {
-            log.debug({title: 'filtering quota object', details: JSON.stringify(quota)});
-            log.debug({title: 'filters', details: JSON.stringify({month, year})});
             if (quota.date) {
-                var date = new Date(quota.date);
-                var hasMonth = (month == date.getMonth());
-                var hasYear = (year == date.getYear());
+                const date = new Date(quota.date);
+                const hasYear = (year == date.getYear());
+                const hasMonth = (month == date.getMonth());
                 if (hasMonth && hasYear) {
-                    let hasRep = true;
-                    let hasProperty = true;
-                    if (salesrep && salesrep !== '0') {
-                        // change hasRep to false if wrong sales rep
-                        
-                    }
-                    if (property && property !== '0') {
-                        // change hasProperty to true if wrong property
-                    }
+                    const hasRep = !(repName && repName !== quota.salesrep);
+                    const hasProperty = !(propertyName && propertyName !== quota.property);
                     if (hasRep && hasProperty) quotas.push(quota);
                 }
             }
@@ -491,13 +604,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
     const csvSplit = (line) => {
         let splitLine = [];
 
-        var quotesplit = line.split('"');
-        var lastindex = quotesplit.length - 1;
+        const quotesplit = line.split('"');
+        const lastindex = quotesplit.length - 1;
         // split evens removing outside quotes, push odds
         quotesplit.forEach((val, index) => {
             if (index % 2 === 0) {
-                var firstchar = (index == 0) ? 0 : 1;
-                var trimmed = (index == lastindex) 
+                const firstchar = (index == 0) ? 0 : 1;
+                const trimmed = (index == lastindex) 
                     ? val.substring(firstchar)
                     : val.slice(firstchar, -1);
                 trimmed.split(",").forEach(v => splitLine.push(v));
@@ -508,7 +621,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
         return splitLine;
     }
     function processCSV(file){
-        var iterator = file.lines.iterator();
+        const iterator = file.lines.iterator();
 
         let keys = [];
         let key = '';
@@ -516,13 +629,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
         
         // add header as object keys
         iterator.each(line =>{
-            var header = line.value.toLowerCase().replace(/\s/g, '')
+            const header = line.value.toLowerCase().replace(/\s/g, '')
             keys = csvSplit(header);
             return false;
         });
         log.debug({title: 'CSV Keys', details: keys});
         iterator.each(line => {
-            var values = csvSplit(line.value);
+            const values = csvSplit(line.value);
             let lineobj = {};
             values.forEach((val, index) => {
                 key = keys[index];
@@ -543,8 +656,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
             filters: [],
             columns: ['id']
         }).run().each(res => {
-            var resStr = JSON.stringify(res);
-            var scriptid = JSON.parse(resStr).values.id;
+            const resStr = JSON.stringify(res);
+            const scriptid = JSON.parse(resStr).values.id;
             if (scriptid == 'customsearch_acbm_quota_search') {
                 log.debug({title: 'quotaSearchScriptID', details: scriptid});
                 log.debug({title: 'quotaSearchInternalID', details: res.id});
@@ -556,10 +669,10 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget"
 
         // SUBMIT TASK
         if (searchInternalId) {
-            var quotaTask = task.create({taskType: task.TaskType.SEARCH});
+            const quotaTask = task.create({taskType: task.TaskType.SEARCH});
             quotaTask.savedSearchId = searchInternalId;
             quotaTask.filePath = 'SuiteScripts/Suitelets/sandbox-forecast/quotaResults.csv';
-            var quotaTaskId = quotaTask.submit();
+            const quotaTaskId = quotaTask.submit();
             log.debug({title: 'quotaTaskId', details: quotaTaskId});
         } else {
             log.error({
