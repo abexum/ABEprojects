@@ -154,6 +154,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         calcSection(page);
 
+        predictionSection(page);
+
         context.response.writePage({
             pageObject: page
         });
@@ -220,7 +222,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.CURRENCY,
             container: 'custpage_calcsgroup'
         });
-        weightedField.defaultValue = calcs.weighted;
+        weightedField.defaultValue = calcs.weighted.toFixed(2);
         weightedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
 
         const grossField = page.addField({
@@ -229,7 +231,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.CURRENCY,
             container: 'custpage_calcsgroup'
         });
-        grossField.defaultValue = calcs.gross;
+        grossField.defaultValue = calcs.gross.toFixed(2);
         grossField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
 
         const universalField = page.addField({
@@ -238,8 +240,33 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.CURRENCY,
             container: 'custpage_calcsgroup'
         });
-        universalField.defaultValue = calcs.universal;
+        universalField.defaultValue = calcs.universal.toFixed(2);
         universalField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+    }
+
+    function predictionSection(page) {
+        page.addFieldGroup({
+            id : 'custpage_predictiongroup',
+            label : 'Sales Rep Predictions'
+        });
+        page.addField({
+            id: 'custpage_worstcase',
+            label: 'Worst Case',
+            type: ui.FieldType.CURRENCY,
+            container: 'custpage_predictiongroup'
+        });
+        page.addField({
+            id: 'custpage_mostlikely',
+            label: 'Most Likely',
+            type: ui.FieldType.CURRENCY,
+            container: 'custpage_predictiongroup'
+        });
+        page.addField({
+            id: 'custpage_upside',
+            label: 'Upside',
+            type: ui.FieldType.CURRENCY,
+            container: 'custpage_predictiongroup'
+        });
     }
 
     function getFilter(request) {
@@ -334,8 +361,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 });
                 if (type === 'estimate') {
                     calcs.weighted+=weightvalue;
-                    calcs.gross+=grossnum;
+                    calcs.gross+=grossnum
                 }
+            } else {
+                calcs.weighted+=grossnum;
+                calcs.gross+=grossnum;
             }
         });
 

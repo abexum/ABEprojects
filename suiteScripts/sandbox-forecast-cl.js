@@ -18,23 +18,7 @@ define(["N/currentRecord"], function (cr) {
 
     function pageInit() {
         window.onbeforeunload = null;
-
-        // page.selectLine({
-        //     sublistId: 'custpage_proposal',
-        //     line: 0
-        // });
-      
-        // page.setCurrentSublistValue({
-        //     sublistId: 'custpage_proposal',
-        //     fieldId: 'custpage_recordid',
-        //     value: '12',
-        //     ignoreFieldChange: true
-        // });
-
-        // page.commitLine({
-        //     sublistId: 'custpage_proposal'
-        // });
-
+        // TODO disable REP PREDICTIONS fields when salesrep==='0'||property==='0'
     };
 
 
@@ -51,6 +35,8 @@ define(["N/currentRecord"], function (cr) {
                 value: enddate
             });
         }
+        // TODO FORECAST in subfields: update gross and weighted calcs
+        // TODO PROBABILITY in subfields: update weighted ?column? and weighted calcs
     };
 
     function performSearch() {
