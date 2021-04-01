@@ -1,5 +1,5 @@
-define(["N/search", "N/url", "N/task", "N/record", "N/format", "N/ui/serverWidget", "N/error", "N/log"], 
-    function (s, url, task, r, f, ui, error, log) {
+define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/ui/serverWidget", "N/error", "N/log"], 
+    function (s, url, task, file, format, ui, e, log) {
 
     /**
      * Forecast Suitelet: Display Search Results in a List
@@ -122,7 +122,7 @@ define(["N/search", "N/url", "N/task", "N/record", "N/format", "N/ui/serverWidge
     };
 
     function onRequest(context) {
-        log.audit({title: 'Request received.'});
+        log.audit({title: 'Loading Forecast Suitelet...'});
 
         var page = ui.createForm({
             title: 'Forecast Suitelet'
@@ -303,8 +303,8 @@ define(["N/search", "N/url", "N/task", "N/record", "N/format", "N/ui/serverWidge
             log.debug({title: 'filter property', details: property});
         }
 
-        const startdate = f.format({value: filter.startdate, type: f.Type.DATE});
-        const enddate = f.format({value: filter.enddate, type: f.Type.DATE});
+        const startdate = format.format({value: filter.startdate, type: format.Type.DATE});
+        const enddate = format.format({value: filter.enddate, type: format.Type.DATE});
         const startFilter = s.createFilter({
             name: 'custcol_agency_mf_flight_end_date',
             operator: s.Operator.ONORAFTER,
@@ -411,86 +411,162 @@ define(["N/search", "N/url", "N/task", "N/record", "N/format", "N/ui/serverWidge
 
     function findQuota(filter) {
 
+        let hasPermissions = true;
+        let fileFound = false;
+        let quotaCSV = '';
+        
+        try {
+            quotaCSV = file.load({
+                id: './quotaResults.csv'
+            });
+            fileFound = true;
+        }
+        catch(err) {
+            if (err.name == 'INSUFFICIENT_PERMISSION') {
+                hasPermissions = false
+            } else if (err.name == 'RCRD_DSNT_EXIST'){
+                refreshQuotaResults();
+            } else {
+                log.error({
+                    title: err.toString(),
+                    details: err.stack
+                })
+            }
+        }
+
+        if (!hasPermissions || !fileFound) return 0;
+
+        log.debug({
+            title: 'Quota CSV File Description',
+            details: quotaCSV.description
+        })
+
+        let quotas = [];
+        // filter quotas
         const month = filter.startdate.getMonth();
-        log.debug({title: 'quotaMonth', details: month});
         const year = filter.startdate.getYear();
-        log.debug({title: 'quotaYear', details: year});
 
-        // SAVED SEARCH TO GET SAVED SEARCH ID FOR TASK
+        const lessInfo = (moreInfo) => {
+            const {salesrep, property, date, amountmonthly} = moreInfo;
+            const lessismore = { 
+                salesrep: salesrep,
+                property: property,
+                date: date,
+                amountmonthly: amountmonthly
+            };
+            return lessismore;
+        };
+        const csvObjs = processCSV(quotaCSV).map(obj => lessInfo(obj));
 
-        const searchFilter = [];
-        const ssFilter = s.createFilter({
-            name: 'scriptid',
-            operator: s.Operator.ANYOF,
-            values: 'customsearch_acbm_quota_search'
+
+        const { salesrep, property } = filter;
+        csvObjs.forEach(quota => {
+            log.debug({title: 'filtering quota object', details: JSON.stringify(quota)});
+            log.debug({title: 'filters', details: JSON.stringify({month, year})});
+            if (quota.date) {
+                var date = new Date(quota.date);
+                var hasMonth = (month == date.getMonth());
+                var hasYear = (year == date.getYear());
+                if (hasMonth && hasYear) {
+                    let hasRep = true;
+                    let hasProperty = true;
+                    if (salesrep && salesrep !== '0') {
+                        // change hasRep to false if wrong sales rep
+                        
+                    }
+                    if (property && property !== '0') {
+                        // change hasProperty to true if wrong property
+                    }
+                    if (hasRep && hasProperty) quotas.push(quota);
+                }
+            }
         });
-        searchFilter.push(ssFilter);
+        // sum the remaining monthly amounts
+        const numOr0 = n => isNaN(parseInt(n)) ? 0 : parseInt(n);
+        const quotaTotal = quotas.reduce((total, current) => numOr0(total) + numOr0(current.amountmonthly), 0);
 
-        const searchInternalIds = [];
+        return quotaTotal;
+    }
+
+    const csvSplit = (line) => {
+        let splitLine = [];
+
+        var quotesplit = line.split('"');
+        var lastindex = quotesplit.length - 1;
+        // split evens removing outside quotes, push odds
+        quotesplit.forEach((val, index) => {
+            if (index % 2 === 0) {
+                var firstchar = (index == 0) ? 0 : 1;
+                var trimmed = (index == lastindex) 
+                    ? val.substring(firstchar)
+                    : val.slice(firstchar, -1);
+                trimmed.split(",").forEach(v => splitLine.push(v));
+            } else {
+                splitLine.push(val);
+            }
+        });
+        return splitLine;
+    }
+    function processCSV(file){
+        var iterator = file.lines.iterator();
+
+        let keys = [];
+        let key = '';
+        let csvObjArray = [];
+        
+        // add header as object keys
+        iterator.each(line =>{
+            var header = line.value.toLowerCase().replace(/\s/g, '')
+            keys = csvSplit(header);
+            return false;
+        });
+        log.debug({title: 'CSV Keys', details: keys});
+        iterator.each(line => {
+            var values = csvSplit(line.value);
+            let lineobj = {};
+            values.forEach((val, index) => {
+                key = keys[index];
+                if (key) lineobj[key] = val;
+            });
+            csvObjArray.push(lineobj);
+            return true;
+        });
+        return csvObjArray;
+    }
+
+    function refreshQuotaResults() {
+        log.audit({title: 'Refreshing Quota CSV...'});
+        // SEARCH TO GET SAVED SEARCH INTERNAL ID FOR TASK
+        let searchInternalId = '';
         s.create({
             type: s.Type.SAVED_SEARCH,
-            filters: searchFilter,
-            columns: ['scriptid']
+            filters: [],
+            columns: ['id']
         }).run().each(res => {
-            log.debug({title: 'savedSearchResult', details: JSON.stringify(res)});
-            searchInternalIds.push(res.id);
+            var resStr = JSON.stringify(res);
+            var scriptid = JSON.parse(resStr).values.id;
+            if (scriptid == 'customsearch_acbm_quota_search') {
+                log.debug({title: 'quotaSearchScriptID', details: scriptid});
+                log.debug({title: 'quotaSearchInternalID', details: res.id});
+                searchInternalIds = res.id;
+                return false;
+            }
             return true;
         });
 
-        // remove the date filters
-        // var quotaFilter = [];
-        // const subsFilter = s.createFilter({
-        //     name: 'subsidiary',
-        //     operator: s.Operator.ANYOF,
-        //     values: '2'
-        // });
-        // quotaFilter.push(subsFilter);
-        // const { salesrep, property } = filter;
-        // if (salesrep && salesrep !== '0') {
-        //     const repFilter = s.createFilter({
-        //         name: 'entity',
-        //         operator: s.Operator.ANYOF,
-        //         values: salesrep
-        //     });
-        //     quotaFilter.push(repFilter);
-        // }
-        // if (property && property !== '0') {
-        //     const propertyFilter = s.createFilter({
-        //         name: 'aclass',
-        //         operator: s.Operator.ANYOF,
-        //         values: property
-        //     });
-        //     quotaFilter.push(propertyFilter);
-        // }
-
-        // TASK MODULE
-        // var quotaTask = task.create({taskType: task.TaskType.SEARCH});
-        // quotaTask.savedSearchId = 568;
-        // quotaTask.filePath = './quotaResults.csv';
-        // var quotaTaskId = quotaTask.submit();
-
-        // SEARCH DOES NOT ACCEPT QUOTA SEARCH TYPE
-        // s.create({
-        //     type: s.Type.QUOTA,
-        //     filters: quotaFilter,
-        //     columns: ['entity','aclass','month','year','amount']
-        // }).run().each(res => {
-        //     log.debug({title: 'quotaResult', details: JSON.stringify(res)});
-        //     return true;
-        // });
-
-        // SEARCH LOAD WONT ACCEPT QUOTA TYPE OR LOAD WITHOUT TYPE
-        // const quotaSearch = s.load({
-        //     id: 'customsearch_acbm_quota_search',
-        //     type: 'Quota'
-        // });
-        // let quotaArray = [];
-        // quotaSearch.run().each(res => {
-        //     log.debug({title: 'quotaResult', details: JSON.stringify(res)});
-        //     quotaArray.push(res);
-        //     return true;
-        // });
-        return quotaTaskId;
+        // SUBMIT TASK
+        if (searchInternalId) {
+            var quotaTask = task.create({taskType: task.TaskType.SEARCH});
+            quotaTask.savedSearchId = searchInternalId;
+            quotaTask.filePath = 'SuiteScripts/Suitelets/sandbox-forecast/quotaResults.csv';
+            var quotaTaskId = quotaTask.submit();
+            log.debug({title: 'quotaTaskId', details: quotaTaskId});
+        } else {
+            log.error({
+                title: 'Quota Task Error',
+                details: 'customsearch_acbm_quota_search not found, quotaResults.csv could not be built'
+            })
+        }
     }
 
     exports.onRequest = onRequest;
