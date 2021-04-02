@@ -150,11 +150,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             renderList(page, key, performSearch(key, filter), filter);
         });
 
-        addQuota(page, filter);
+        calcSection(page, filter);
 
-        calcSection(page);
-
-        predictionSection(page);
+        predictionSection(page, filter);
 
         context.response.writePage({
             pageObject: page
@@ -209,9 +207,17 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
         endDateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
         endDateField.defaultValue = filter.enddate;
+        const fullyearField = page.addField({
+            id: 'custpage_fullyear',
+            label: 'search full year',
+            type: ui.FieldType.CHECKBOX,
+            container: 'custpage_dategroup'
+        });
+        fullyearField.defaultValue = (filter.fullyear) ? 'T' : 'F';
+
     }
 
-    function calcSection(page) {
+    function calcSection(page, filter) {
         page.addFieldGroup({
             id : 'custpage_calcsgroup',
             label : 'Forecast Calcs'
@@ -242,44 +248,54 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
         universalField.defaultValue = calcs.universal.toFixed(2);
         universalField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+        universalField.updateBreakType({
+            breakType : ui.FieldBreakType.STARTCOL
+        });
+        addQuota(page, filter);
     }
 
-    function predictionSection(page) {
-        page.addFieldGroup({
+    function predictionSection(page, filter) {
+        const predictionGroup = page.addFieldGroup({
             id : 'custpage_predictiongroup',
             label : 'Sales Rep Predictions'
         });
-        page.addField({
+        const worstField = page.addField({
             id: 'custpage_worstcase',
             label: 'Worst Case',
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
-        page.addField({
+        const likelyField = page.addField({
             id: 'custpage_mostlikely',
             label: 'Most Likely',
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
-        page.addField({
+        const upsideField = page.addField({
             id: 'custpage_upside',
             label: 'Upside',
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
+        if (!(repFiltered(filter) && propFiltered(filter))) {
+            worstField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+            likelyField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+            upsideField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+        }
     }
 
     function getFilter(request) {
-        const { salesrep, property, startdate, enddate } = request.parameters;
+        const { salesrep, property, startdate, enddate, fullyear } = request.parameters;
 
-        const startValue = defaultStart(startdate);
-        const endValue = defaultEnd(enddate);
+        const startValue = defaultStart(startdate, fullyear);
+        const endValue = defaultEnd(enddate, fullyear);
 
         return {
             salesrep: salesrep,
             property: property,
             startdate: startValue,
-            enddate: endValue
+            enddate: endValue,
+            fullyear: fullyear
         }
     }
 
@@ -315,18 +331,19 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             const field = list.addField(id);
             // extras for input fields
             // entity status would go here as dropdown if needed
-            if (id.id === 'probability') {
-                field.updateDisplayType({
-                    displayType: ui.FieldDisplayType.ENTRY
+            if (id.id === 'probability' || (type === 'opportunity' && id.id === 'amount')) {
+                field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY
                 });
             }
         });
         if (type !== 'salesorder'){
-            list.addField({
+            const weightField = list.addField({
                 id: 'custpage_weighted',
                 label: 'Weighted',
                 type: ui.FieldType.CURRENCY,
             });
+            weightField.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
+            weightField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
         }
 
         results.forEach((res, index) => {
@@ -357,7 +374,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 list.setSublistValue({
                     id: 'custpage_weighted',
                     line: index,
-                    value: weightvalue
+                    value: weightvalue.toFixed(2)
                 });
                 if (type === 'estimate') {
                     calcs.weighted+=weightvalue;
@@ -491,13 +508,17 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
     }
 
-    function defaultStart(start) {
+    function defaultStart(start, fullyear) {
         const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
-        return new Date(date.getFullYear(), date.getMonth(), 1);
+        return (fullyear)
+            ? new Date(date.getFullYear(), 0, 1)
+            : new Date(date.getFullYear(), date.getMonth(), 1);
     }
-    function defaultEnd(end) {
+    function defaultEnd(end, fullyear) {
         const date = (end) ? new Date(end.substring(0, end.indexOf('00:00:00'))) : new Date();
-        return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+        return (fullyear)  
+            ? new Date(date.getFullYear(), 11, 31)
+            : new Date(date.getFullYear(), date.getMonth() + 1, 0);
     }
 
     function translate(result) {
@@ -521,17 +542,17 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id: 'custpage_quota',
             label: 'Quota',
             type: ui.FieldType.CURRENCY,
+            container: 'custpage_calcsgroup'
         });
         quotaField.defaultValue = findQuota(filter);
 
-        quotaField.updateBreakType({
-            breakType : ui.FieldBreakType.STARTCOL
-        });
+        // quotaField.updateBreakType({
+        //     breakType : ui.FieldBreakType.STARTCOL
+        // });
         quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
     }
 
     function findQuota(filter) {
-
         let hasPermissions = true;
         let fileFound = false;
         let quotaCSV = '';
@@ -582,41 +603,23 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const getRepName = (id) => {
             if (!id || id === '0') return '';
             const employeeRecord = record.load({type: record.Type.EMPLOYEE, id: id});
-            log.debug({
-                title: 'repRecord',
-                details: JSON.stringify(employeeRecord)
-            });
             return employeeRecord.getValue({fieldId: 'entityid'});
         }
         const getPropertyName = (id) => {
             if (!id || id === '0') return '';
             const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
-            log.debug({
-                title: 'propertyRecord',
-                details: JSON.stringify(propertyRecord)
-            });
             return propertyRecord.getValue({fieldId: 'name'});
         }
 
         const { salesrep, property } = filter;
         const repName = getRepName(salesrep);
         const propertyName = getPropertyName(property);
-
-        log.debug({
-            title: 'repName',
-            details: repName
-        });
-        
-        log.debug({
-            title: 'propertyName',
-            details: propertyName
-        });
         
         csvObjs.forEach(quota => {
             if (quota.date) {
                 const date = new Date(quota.date);
                 const hasYear = (year == date.getYear());
-                const hasMonth = (month == date.getMonth());
+                const hasMonth = filter.fullyear || (month == date.getMonth());
                 if (hasMonth && hasYear) {
                     const hasRep = !(repName && repName !== quota.salesrep);
                     const hasProperty = !(propertyName && propertyName !== quota.property);
@@ -711,6 +714,18 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             })
         }
     }
+
+    // function saveQuota(csvObj) {
+
+    //     const quotaFile = file.create({
+    //         name: 'testResults.csv',
+    //         fitelType: file.Type.CSV,
+    //         contents: csvObj
+    //     })
+    //     quotaFile.folder = 1020; // consider not hard coding this?
+    //     quotaFile.save();
+
+    // }
 
     exports.onRequest = onRequest;
     return exports;
