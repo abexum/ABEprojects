@@ -83,15 +83,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         { 
             id: 'probability',
             label: 'Probability',
-            type: ui.FieldType.PERCENT // make this inline editable > saves to record when user clicks save
+            type: ui.FieldType.PERCENT
         },
-        // have forecast type be dropdown select as well
         { 
             id: 'amount',
             label: 'Gross',
             type: ui.FieldType.CURRENCY
         }
-        // weighted, worst case, most likely, upside TODO
     ];
     const orderFields = [
         { 
@@ -141,6 +139,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id : 'custpage_searchButton',
             label : 'Perform Search',
             functionName: 'performSearch'
+        });
+        page.addButton({
+            id : 'custpage_saveButton',
+            label : 'Save',
+            functionName: 'save'
         });
 
         filterOptionsSection(page, filter);
@@ -213,6 +216,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.CHECKBOX,
             container: 'custpage_dategroup'
         });
+        
         fullyearField.defaultValue = (filter.fullyear) ? 'T' : 'F';
 
     }
@@ -287,15 +291,16 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function getFilter(request) {
         const { salesrep, property, startdate, enddate, fullyear } = request.parameters;
 
-        const startValue = defaultStart(startdate, fullyear);
-        const endValue = defaultEnd(enddate, fullyear);
+        const fy = (fullyear === 'true');
+        const startValue = defaultStart(startdate, fy);
+        const endValue = defaultEnd(enddate, fy);
 
         return {
             salesrep: salesrep,
             property: property,
             startdate: startValue,
             enddate: endValue,
-            fullyear: fullyear
+            fullyear: fy
         }
     }
 
