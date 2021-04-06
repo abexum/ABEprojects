@@ -21,6 +21,7 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
         window.onbeforeunload = null;
     }
 
+    var editlog = [];
 
     function fieldChanged(context) {
         if (context.fieldId == 'custpage_startdate' || context.fieldId === 'custpage_fullyear') {
@@ -46,7 +47,7 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
             });
         }
         // Updates for weighted and forecast calcs when line items change
-        if (context.fieldId === 'custpage_forecast' 
+        if (context.fieldId === 'custpage_forecast'
             || context.fieldId === 'probability' 
             || context.fieldId === 'amount') {
             const sublistId = context.sublistId;
@@ -83,6 +84,7 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
                     page.setValue({fieldId: 'custpage_calcgross', value: calcgross.toFixed(2)});
                 }
             } else { // line item change via either probability or gross
+                editlog.push(getInternalId(sublistId, line)) // add to list of edited records for later save
                 console.info('item amount change...');
                 const probability = page.getSublistValue({
                     sublistId: sublistId,
@@ -182,31 +184,39 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
 
     function save() {
         console.info('Saving Record Changes...');
-        const opportunityValues = getEntryValues('custpage_opportunity');
-        const proposalValues = getEntryValues('custpage_estimate');
+        console.info(editlog);
+        const opportunityEntries = getEntryValues('custpage_opportunity').filter(edited);
+        const proposalEntries = getEntryValues('custpage_estimate').filter(edited);
 
-        const oppRecords = recordsOnly(opportunityValues);
-        recordsOnly(proposalValues);
+        Promise.all(proposalEntries.map(setProbability))
 
-        // TODO set the amount on each opportunity item from form
-        //setSubitems(oppRecords)
+        Promise.all(opportunityEntries.map(setProbabilityAndAmounts));
 
-        console.info(oppRecords);
+        editlog = [];
+    }
+    function getInternalId(sublistId, line) {
+        const tranid = page.getSublistValue({
+            sublistId: sublistId,
+            fieldId: 'tranid',
+            line: line
+        })
+        return getIDfromHTML(tranid);
     }
     function getIDfromHTML(html){
         const params = html.substring(html.indexOf('id='));
         return params.substring(3,params.indexOf('&'));
     }
+    function edited(entry) {
+        return editlog.includes(entry.id);
+    }
     function getEntryValues(sublistId) {
         entryValues = [];
         const total = page.getLineCount({sublistId: sublistId});
+        var lineitems = [];
+        var preventry = {};
+        var previd = '';
         for (var line = 0; line < total; line++) {
-            var tranid = page.getSublistValue({
-                sublistId: sublistId,
-                fieldId: 'tranid',
-                line: line
-            })
-            const id = getIDfromHTML(tranid);
+            var id = getInternalId(sublistId, line);
 
             var probability = page.getSublistValue({
                 sublistId: sublistId,
@@ -214,53 +224,120 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
                 line: line
             })
 
-            if (sublistId == 'custpage_estimate') {
-                entryValues.push({
-                    id: id,
-                    type: record.Type.ESTIMATE,
-                    probability: probability
-                });
+            if (sublistId === 'custpage_estimate') {
+                if (previd !== id){
+                    entryValues.push({
+                        id: id,
+                        type: record.Type.ESTIMATE,
+                        probability: probability
+                    });
+                    previd = id;
+                }
                 continue;
+            }
+            if (previd !== id && line !== 0) {
+                entryValues.push(preventry);
+                lineitems = [];
+                previd = id;
             }
             var amount = page.getSublistValue({
                 sublistId: sublistId,
                 fieldId: 'amount',
                 line: line
             })
-            var flightendfull = page.getSublistValue({
+            var flightend = page.getSublistValue({
                 sublistId: sublistId,
                 fieldId: 'custcol_agency_mf_flight_end_date',
                 line: line
             }).toString();
-            var flightend = flightendfull.substring(0, flightendfull.indexOf('00:00:00'));
-
-            entryValues.push({
-                id: id,
-                type: record.Type.OPPORTUNITY,
+            lineitems.push({
                 flightend: flightend,
-                probability: probability,
                 gross: amount
             });
+            preventry = {
+                id: id,
+                type: record.Type.OPPORTUNITY,
+                probability: probability,
+                lineitems: lineitems,
+            }
+            if (line === (total-1)){
+                entryValues.push(preventry);
+            }
         }
+
         return entryValues;
     }
-    function recordsOnly(allEntry) {
-        return allEntry.filter(function(entry, index, self){
-            return (self.findIndex(function(dup){
-                return (dup.id === entry.id)
-            }) === index);
-        }).map(setProbGetRecord);
+
+    function setProbability(entryObj) {
+        const submission = record.submitFields.promise({
+            type: entryObj.type,
+            id: entryObj.id,
+            values: {
+                probability: entryObj.probability
+            },
+            options: {
+                enablesourcing: false,
+                ignoreMandatoryFields: true
+            }
+        });
+        console.info('Updated Proposal ID: ' + entryObj.id);
+        return submission;
+    }
+    function setProbabilityAndAmounts(entryObj) {
+        const loaded = record.load.promise({
+            type: entryObj.type,
+            id: entryObj.id,
+        });
+        loaded.then(function(recObj){
+            // probability set once on opportunity item
+            recObj.setValue({
+                fieldId: 'probability',
+                value: entryObj.probability,
+                ignoreFieldChange: true
+            })
+
+            // index line number on sublist by flight end date to match with table info
+            const linecount = recObj.getLineCount({sublistId: 'item'});
+            var dateindex = {};
+            for (var line = 0 ; line < linecount; line++) {
+                var flightend = recObj.getSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'custcol_agency_mf_flight_end_date',
+                    line: line
+                }).toString();
+                dateindex[flightend] = line;
+            }
+
+            // update line item amounts from gross in table
+            entryObj.lineitems.forEach(function(itementry){
+                recObj.setSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'amount',
+                    line: dateindex[itementry.flightend],
+                    value: itementry.gross
+                });
+            });
+            var recordId = recObj.save({ignoreMandatoryFields: true});
+            console.info('Updated Opportunity ID: ' + recordId);
+        }).catch(function(reason) {
+            console.info("Failed: " + reason);
+            console.info('error name: ' + reason.name);
+            //do something on failure
+        });
+        return;
     }
 
-    function setProbGetRecord(entryObj) {
-        const transactionRecord = record.load({type: entryObj.type, id: entryObj.id});
-        // set probability and return keyed on id for use with item amounts
-        transactionRecord.setValue({fieldId: 'probability', value: entryObj.probability});
-        // TODO This does not work =/
+    // function saveQuota(csvObj) {
 
-        return transactionRecord;
-    }
+    //     const quotaFile = file.create({
+    //         name: 'testResults.csv',
+    //         fitelType: file.Type.CSV,
+    //         contents: csvObj
+    //     })
+    //     quotaFile.folder = 1020; // consider not hard coding this?
+    //     quotaFile.save();
 
+    // }
 
     exports.pageInit = pageInit;
     exports.performSearch = performSearch;

@@ -129,7 +129,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         log.audit({title: 'Loading Forecast Suitelet...'});
 
         const page = ui.createForm({
-            title: 'Forecast Suitelet'
+            title: 'Sales Forecast'
         });
 
         const filter = getFilter(context.request);
@@ -147,15 +147,16 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
 
         filterOptionsSection(page, filter);
-        dateSection(page, filter);
 
         Object.keys(typesDictionary).forEach(key => {
             renderList(page, key, performSearch(key, filter), filter);
         });
 
-        calcSection(page, filter);
+        const csvTotals = getCSVtotals(filter);
 
-        predictionSection(page, filter);
+        calcSection(page, csvTotals.quota);
+
+        predictionSection(page, filter, csvTotals);
 
         context.response.writePage({
             pageObject: page
@@ -167,7 +168,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id : 'custpage_filtergroup',
             label : 'Filter Results'
         });
-        filtergroup.isSingleColumn = true;
         filtergroup.isBorderHidden = true;
 
         const salesRepSearchField = page.addField({
@@ -185,20 +185,15 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             container: 'custpage_filtergroup'
         });
         getProperties(propertySearchField, filter.property);
-    }
-
-    function dateSection(page, filter) {
-        const dategroup = page.addFieldGroup({
-            id : 'custpage_dategroup',
-            label : 'Select Dates'
-        });
-        dategroup.isBorderHidden = true;
 
         const startDateField = page.addField({
             id: 'custpage_startdate',
             label: 'Start Date',
             type: ui.FieldType.DATE,
-            container: 'custpage_dategroup'
+            container: 'custpage_filtergroup'
+        });
+        startDateField.updateBreakType({
+            breakType : ui.FieldBreakType.STARTCOL
         });
         startDateField.defaultValue = filter.startdate;
 
@@ -206,7 +201,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id: 'custpage_enddate',
             label: 'End Date',
             type: ui.FieldType.DATE,
-            container: 'custpage_dategroup'
+            container: 'custpage_filtergroup'
         });
         endDateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
         endDateField.defaultValue = filter.enddate;
@@ -214,14 +209,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id: 'custpage_fullyear',
             label: 'search full year',
             type: ui.FieldType.CHECKBOX,
-            container: 'custpage_dategroup'
+            container: 'custpage_filtergroup'
         });
         
         fullyearField.defaultValue = (filter.fullyear) ? 'T' : 'F';
-
     }
 
-    function calcSection(page, filter) {
+    function calcSection(page, quota) {
         page.addFieldGroup({
             id : 'custpage_calcsgroup',
             label : 'Forecast Calcs'
@@ -246,7 +240,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         const universalField = page.addField({
             id: 'custpage_calcuniversal',
-            label: 'Universal',
+            label: 'Universe',
             type: ui.FieldType.CURRENCY,
             container: 'custpage_calcsgroup'
         });
@@ -255,11 +249,18 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         universalField.updateBreakType({
             breakType : ui.FieldBreakType.STARTCOL
         });
-        addQuota(page, filter);
+        const quotaField = page.addField({
+            id: 'custpage_quota',
+            label: 'Quota',
+            type: ui.FieldType.CURRENCY,
+            container: 'custpage_calcsgroup'
+        });
+        quotaField.defaultValue = quota;
+        quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
     }
 
-    function predictionSection(page, filter) {
-        const predictionGroup = page.addFieldGroup({
+    function predictionSection(page, filter, csvTotals) {
+        page.addFieldGroup({
             id : 'custpage_predictiongroup',
             label : 'Sales Rep Predictions'
         });
@@ -269,19 +270,36 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
+        if (csvTotals.worstcase) worstField.defaultValue = csvTotals.worstcase;
         const likelyField = page.addField({
             id: 'custpage_mostlikely',
             label: 'Most Likely',
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
+        if (csvTotals.mostlikely) likelyField.defaultValue = csvTotals.mostlikely;
         const upsideField = page.addField({
             id: 'custpage_upside',
             label: 'Upside',
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
-        if (!(repFiltered(filter) && propFiltered(filter))) {
+        if (csvTotals.upside) upsideField.defaultValue = csvTotals.upside;
+        const lastupdateField = page.addField({
+            id: 'custpage_lastupdate',
+            label: 'Last Update',
+            type: ui.FieldType.DATETIMETZ,
+            container: 'custpage_predictiongroup'
+        });
+        log.debug({
+            title: 'lastupdate value',
+            details: csvTotals.lastupdate
+        })
+        // if (csvTotals.lastupdate !== null) lastupdateField.defaultValue = csvTotals.lastupdate;
+        lastupdateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+
+
+        if (!(repFiltered(filter) && propFiltered(filter) && !filter.fullyear)) {
             worstField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
             likelyField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
             upsideField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
@@ -308,10 +326,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         // calculate total gross amount
         const numOr0 = n => isNaN(parseInt(n)) ? 0 : parseInt(n);
         const grossTotal = results.reduce((total, current) => numOr0(total) + numOr0(current.amount), 0);
+
+        const formatTotal = format.format({value: grossTotal, type: format.Type.CURRENCY}).slice(0,-3);
+        // TODO format grossTotal with commas and $
         const list = form.addSublist({
             id : 'custpage_' + type,
             type : ui.SublistType.LIST,
-            label : typesDictionary[type].label + ' [' + grossTotal +']'
+            label : typesDictionary[type].label + ' [$' + formatTotal +']'
         });
 
         const skip = id => {
@@ -542,22 +563,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return row;
     }
 
-    function addQuota(page, filter) {
-        const quotaField = page.addField({
-            id: 'custpage_quota',
-            label: 'Quota',
-            type: ui.FieldType.CURRENCY,
-            container: 'custpage_calcsgroup'
-        });
-        quotaField.defaultValue = findQuota(filter);
-
-        // quotaField.updateBreakType({
-        //     breakType : ui.FieldBreakType.STARTCOL
-        // });
-        quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
-    }
-
-    function findQuota(filter) {
+    function getCSVtotals(filter) {
         let hasPermissions = true;
         let fileFound = false;
         let quotaCSV = '';
@@ -594,12 +600,16 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const year = filter.startdate.getYear();
 
         const lessInfo = (moreInfo) => {
-            const {salesrep, property, date, amountmonthly} = moreInfo;
+            const {salesrep, property, date, amountmonthly, worstcase, mostlikely, upside, lastupdate} = moreInfo;
             const lessismore = { 
                 salesrep: salesrep,
                 property: property,
                 date: date,
-                amountmonthly: amountmonthly
+                amountmonthly: amountmonthly,
+                worstcase: worstcase,
+                mostlikely: mostlikely,
+                upside: upside,
+                lastupdate: lastupdate
             };
             return lessismore;
         };
@@ -636,7 +646,18 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const numOr0 = n => isNaN(parseInt(n)) ? 0 : parseInt(n);
         const quotaTotal = quotas.reduce((total, current) => numOr0(total) + numOr0(current.amountmonthly), 0);
 
-        return quotaTotal;
+        const worstcase = quotas.reduce((total, current) => numOr0(total) + numOr0(current.worstcase), 0);
+        const mostlikely = quotas.reduce((total, current) => numOr0(total) + numOr0(current.mostlikely), 0);
+        const upside = quotas.reduce((total, current) => numOr0(total) + numOr0(current.upside), 0);
+        const lastupdate = new Date(Math.max(...quotas.map(entry => new Date(entry.lastupdate))));
+
+        return {
+            quota: quotaTotal,
+            worstcase: worstcase,
+            mostlikely: mostlikely,
+            upside: upside,
+            lastupdate: lastupdate
+        }
     }
 
     const csvSplit = (line) => {
@@ -719,18 +740,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             })
         }
     }
-
-    // function saveQuota(csvObj) {
-
-    //     const quotaFile = file.create({
-    //         name: 'testResults.csv',
-    //         fitelType: file.Type.CSV,
-    //         contents: csvObj
-    //     })
-    //     quotaFile.folder = 1020; // consider not hard coding this?
-    //     quotaFile.save();
-
-    // }
 
     exports.onRequest = onRequest;
     return exports;
