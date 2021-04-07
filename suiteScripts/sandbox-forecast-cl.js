@@ -189,6 +189,10 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         filteredURL.searchParams.set('enddate', enddate);
         filteredURL.searchParams.set('fullyear', fullyear);
 
+        filteredURL.searchParams.delete('worstcase');
+        filteredURL.searchParams.delete('mostlikely');
+        filteredURL.searchParams.delete('upside');
+
         window.location.replace(filteredURL);
     }
 

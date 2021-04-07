@@ -99,6 +99,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         }
     ];
 
+    var runTheQuotaUpdateTask = false;
+
     const repFiltered = filter => (filter.salesrep && filter.salesrep !== '0');
     const propFiltered = filter => (filter.property && filter.property !== '0');
 
@@ -127,12 +129,19 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
+        log.debug({title: 'request parameters', details: context.request.parameters});
 
         const page = ui.createForm({
             title: 'Sales Forecast'
         });
 
         const filter = getFilter(context.request);
+        // keep quotas up to date when tool is first opened
+        if (runTheQuotaUpdateTask) refreshQuotaResults();
+
+        // handle new repPredictions from save event
+        const repPredictions = getRepPredictions(context.request);
+        if (repPredictions !== null) updateCSV(filter, repPredictions);
 
         page.clientScriptModulePath = "./sandbox-forecast-cl.js";
         page.addButton({
@@ -152,11 +161,12 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             renderList(page, key, performSearch(key, filter), filter);
         });
 
-        const csvTotals = getCSVtotals(filter);
+        const quota = getQuotaCSVtotal(filter);
+        const predictionValues = getPredictionCSVtotals(filter);
 
-        calcSection(page, csvTotals.quota);
+        calcSection(page, quota);
 
-        predictionSection(page, filter, csvTotals);
+        predictionSection(page, filter, predictionValues);
 
         context.response.writePage({
             pageObject: page
@@ -259,7 +269,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
     }
 
-    function predictionSection(page, filter, csvTotals) {
+    function predictionSection(page, filter, predictionValues) {
         page.addFieldGroup({
             id : 'custpage_predictiongroup',
             label : 'Sales Rep Predictions'
@@ -270,21 +280,21 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
-        if (csvTotals.worstcase) worstField.defaultValue = csvTotals.worstcase;
+        if (predictionValues.worstcase) worstField.defaultValue = predictionValues.worstcase;
         const likelyField = page.addField({
             id: 'custpage_mostlikely',
             label: 'Most Likely',
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
-        if (csvTotals.mostlikely) likelyField.defaultValue = csvTotals.mostlikely;
+        if (predictionValues.mostlikely) likelyField.defaultValue = predictionValues.mostlikely;
         const upsideField = page.addField({
             id: 'custpage_upside',
             label: 'Upside',
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
-        if (csvTotals.upside) upsideField.defaultValue = csvTotals.upside;
+        if (predictionValues.upside) upsideField.defaultValue = predictionValues.upside;
         const lastupdateField = page.addField({
             id: 'custpage_lastupdate',
             label: 'Last Update',
@@ -293,11 +303,10 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
         log.debug({
             title: 'lastupdate value',
-            details: csvTotals.lastupdate
+            details: predictionValues.lastupdate
         })
-        if (csvTotals.lastupdate !== null) lastupdateField.defaultValue = csvTotals.lastupdate;
+        if (predictionValues.lastupdate) lastupdateField.defaultValue = predictionValues.lastupdate;
         lastupdateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
-
 
         if (!(repFiltered(filter) && propFiltered(filter) && !filter.fullyear)) {
             worstField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
@@ -309,9 +318,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function getFilter(request) {
         const { salesrep, property, startdate, enddate, fullyear } = request.parameters;
 
+        // tool is first opened, kickoff the quota update task in preparation for a search
+        if (!(salesrep || property || startdate || enddate || fullyear)) runTheQuotaUpdateTask = true;
+
         const fy = (fullyear === 'true');
         const startValue = defaultStart(startdate, fy);
         const endValue = defaultEnd(enddate, fy);
+
 
         return {
             salesrep: salesrep,
@@ -322,13 +335,18 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         }
     }
 
+    function getRepPredictions(request) {
+        const { worstcase, mostlikely, upside } = request.parameters;
+        return (worstcase || mostlikely || upside) 
+            ? {worstcase: worstcase, mostlikely: mostlikely, upside: upside}
+            : null;
+    }
+
     function renderList(form, type, results, filter) {
         // calculate total gross amount
-        const numOr0 = n => isNaN(parseInt(n)) ? 0 : parseInt(n);
         const grossTotal = results.reduce((total, current) => numOr0(total) + numOr0(current.amount), 0);
-
         const formatTotal = format.format({value: grossTotal, type: format.Type.CURRENCY}).slice(0,-3);
-        // TODO format grossTotal with commas and $
+
         const list = form.addSublist({
             id : 'custpage_' + type,
             type : ui.SublistType.LIST,
@@ -455,7 +473,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 values: salesrep
             });
             searchFilter.push(repFilter);
-            log.debug({title: 'filter salesrep', details: salesrep});
         }
         if (propFiltered(filter)) {
             const propertyFilter = s.createFilter({
@@ -464,7 +481,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 values: property
             });
             searchFilter.push(propertyFilter);
-            log.debug({title: 'filter property', details: property});
         }
 
         const startdate = format.format({value: filter.startdate, type: format.Type.DATE});
@@ -480,9 +496,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             values: enddate
         });
         searchFilter.push(startFilter, endFilter);
-
-        log.debug({title: 'filter startdate', details: startdate});
-        log.debug({title: 'filter enddate', details: enddate});
 
         return searchFilter;
     }
@@ -563,101 +576,104 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return row;
     }
 
-    function getCSVtotals(filter) {
-        let hasPermissions = true;
-        let fileFound = false;
-        let quotaCSV = '';
-        
-        try {
-            quotaCSV = file.load({
-                id: './quotaResults.csv'
-            });
-            fileFound = true;
+    const getRepName = (id) => {
+        if (!id || id === '0') return '';
+        const employeeRecord = record.load({type: record.Type.EMPLOYEE, id: id});
+        return employeeRecord.getValue({fieldId: 'entityid'});
+    }
+    const getPropertyName = (id) => {
+        if (!id || id === '0') return '';
+        const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
+        return propertyRecord.getValue({fieldId: 'name'});
+    }
+
+    function getQuotaCSVtotal(filter) {
+        const quotaCSV = grabFile('quotaResults.csv');
+        if (!quotaCSV) {
+            refreshQuotaResults();
+            return 0;
         }
-        catch(err) {
-            if (err.name == 'INSUFFICIENT_PERMISSION') {
-                hasPermissions = false
-            } else if (err.name == 'RCRD_DSNT_EXIST'){
-                refreshQuotaResults();
-            } else {
-                log.error({
-                    title: err.toString(),
-                    details: err.stack
-                })
-            }
-        }
-
-        if (!hasPermissions || !fileFound) return 0;
-
-        log.debug({
-            title: 'Quota CSV File Description',
-            details: quotaCSV.description
-        })
-
-        let quotas = [];
-        // filter quotas
-        const month = filter.startdate.getMonth();
-        const year = filter.startdate.getFullYear();
 
         const lessInfo = (moreInfo) => {
-            const {salesrep, property, date, amountmonthly, worstcase, mostlikely, upside, lastupdate} = moreInfo;
+            const {salesrep, property, date, amountmonthly } = moreInfo;
             const lessismore = { 
                 salesrep: salesrep,
                 property: property,
                 date: date,
-                amountmonthly: amountmonthly,
-                worstcase: worstcase,
-                mostlikely: mostlikely,
-                upside: upside,
-                lastupdate: lastupdate
+                amountmonthly: amountmonthly
             };
             return lessismore;
         };
         const csvObjs = processCSV(quotaCSV).map(obj => lessInfo(obj));
 
-        const getRepName = (id) => {
-            if (!id || id === '0') return '';
-            const employeeRecord = record.load({type: record.Type.EMPLOYEE, id: id});
-            return employeeRecord.getValue({fieldId: 'entityid'});
-        }
-        const getPropertyName = (id) => {
-            if (!id || id === '0') return '';
-            const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
-            return propertyRecord.getValue({fieldId: 'name'});
-        }
+        const quotas = filterCSVlines(csvObjs, filter);
 
-        const { salesrep, property } = filter;
-        const repName = getRepName(salesrep);
-        const propertyName = getPropertyName(property);
-        
-        csvObjs.forEach(quota => {
-            if (quota.date) {
-                const date = new Date(quota.date);
-                const hasYear = (year == date.getFullYear());
-                const hasMonth = filter.fullyear || (month == date.getMonth());
-                if (hasMonth && hasYear) {
-                    const hasRep = !(repName && repName !== quota.salesrep);
-                    const hasProperty = !(propertyName && propertyName !== quota.property);
-                    if (hasRep && hasProperty) quotas.push(quota);
-                }
-            }
-        });
-        // sum the remaining monthly amounts
-        const numOr0 = n => isNaN(parseInt(n)) ? 0 : parseInt(n);
+        // sum the remaining monthly amounts     
         const quotaTotal = quotas.reduce((total, current) => numOr0(total) + numOr0(current.amountmonthly), 0);
 
-        const worstcase = quotas.reduce((total, current) => numOr0(total) + numOr0(current.worstcase), 0);
-        const mostlikely = quotas.reduce((total, current) => numOr0(total) + numOr0(current.mostlikely), 0);
-        const upside = quotas.reduce((total, current) => numOr0(total) + numOr0(current.upside), 0);
-        const lastupdate = new Date(Math.max(...quotas.map(entry => new Date(entry.lastupdate))));
+        return quotaTotal;
+    }
 
+    function getPredictionCSVtotals(filter) {
+        const repFilterCSV = grabFile('repPredictions.csv');
+        if (!repFilterCSV) return {worstcase: '', mostlikely: '', upside: '', lastupdate: ''};
+
+        const csvObjs = processCSV(repFilterCSV);
+        const filteredLines = filterCSVlines(csvObjs, filter);
+
+        const worstcase = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.worstcase), 0);
+        const mostlikely = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.mostlikely), 0);
+        const upside = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.upside), 0);
+        const lastupdate = new Date(Math.max(...filteredLines.map(entry => new Date(entry.lastupdate))));
         return {
-            quota: quotaTotal,
             worstcase: worstcase,
             mostlikely: mostlikely,
             upside: upside,
             lastupdate: lastupdate
         }
+    }
+
+    function filterCSVlines(csvObjs, filter) {
+        let filtered = [];
+        const { salesrep, property } = filter;
+        const repName = getRepName(salesrep);
+        const propertyName = getPropertyName(property);
+        const month = filter.startdate.getMonth();
+        const year = filter.startdate.getFullYear();
+
+        csvObjs.forEach(line => {
+            if (line.date) {
+                const date = new Date(line.date);
+                const hasYear = (year == date.getFullYear());
+                const hasMonth = filter.fullyear || (month == date.getMonth());
+                if (hasMonth && hasYear) {
+                    const hasRep = !(repName && repName !== line.salesrep);
+                    const hasProperty = !(propertyName && propertyName !== line.property);
+                    if (hasRep && hasProperty) filtered.push(line);
+                }
+            }
+        });
+        return filtered;
+    }
+
+    function grabFile(filename) {
+        var csvFile = '';
+        
+        try {
+            csvFile = file.load({
+                id: './'+filename
+            });
+        } catch(err) {
+            if (err.name == 'RCRD_DSNT_EXIST'){
+                log.audit({title: filename + 'not found, rebuilding'});
+            } else {
+                log.error({
+                    title: err.toString(),
+                    details: err.stack
+                });
+            }
+        }
+        return csvFile;
     }
 
     const csvSplit = (line) => {
@@ -692,7 +708,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             keys = csvSplit(header);
             return false;
         });
-        log.debug({title: 'CSV Keys', details: keys});
         iterator.each(line => {
             const values = csvSplit(line.value);
             let lineobj = {};
@@ -706,26 +721,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return csvObjArray;
     }
 
-    function updateCSV() {
-        // TODO change this to use the values from filter
-        const salesrep = page.getValue({fieldId: 'custpage_salesrep'});
-        const property = page.getValue({fieldId: 'custpage_property'});
-        const startdate = page.getValue({fieldId: 'custpage_startdate'});
-        const fullyear = page.getValue({fieldId: 'custpage_fullyear'});
-        const worstcase = page.getValue({fieldId: 'custpage_worstcase'});
-        const mostlikely = page.getValue({fieldId: 'custpage_mostlikely'});
-        const upside = page.getValue({fieldId: 'custpage_upside'});
-
-        const getRepName = (id) => {
-            if (!id || id === '0') return '';
-            const employeeRecord = record.load({type: record.Type.EMPLOYEE, id: id});
-            return employeeRecord.getValue({fieldId: 'entityid'});
-        }
-        const getPropertyName = (id) => {
-            if (!id || id === '0') return '';
-            const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
-            return propertyRecord.getValue({fieldId: 'name'});
-        }
+    function updateCSV(filter, repPredictions) {
+        const { salesrep, property, startdate, fullyear } = filter;
+        const { worstcase, mostlikely, upside } = repPredictions;
 
         const repName = getRepName(salesrep);
         const propertyName = getPropertyName(property);
@@ -736,54 +734,40 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const updatedPredictions = {
             salesrep: repName,
             property: propertyName,
-            date: month + '/1/' + year,
+            date: (month+1) + '/1/' + year,
             worstcase: worstcase,
             mostlikely: mostlikely,
             upside: upside,
             lastupdate: lastupdate
         }
-        console.info('updatedPredictions');
-        console.info(JSON.stringify(updatedPredictions));
+
+        log.debug({
+            title: 'updatedPredictions',
+            details: JSON.stringify(updatedPredictions)
+        })
 
         // predictions are salesrep, property and month specific for edits
         if (salesrep === '0' || property === '0' || fullyear) return;
 
-        var fileFound = false;
-        var predictionCSV = '';
-        
-        try {
-            predictionCSV = file.load({
-                id: './repPredictions.csv'
-            });
-            fileFound = true;
-        } catch(err) {
-            if (err.name == 'RCRD_DSNT_EXIST'){
-                console.info('Creating new repPredictions.csv');
-            } else {
-                log.error({
-                    title: err.toString(),
-                    details: err.stack
-                });
-
-                console.info(err.stack);
-            }
-        }
+        const predictionCSV = grabFile('repPredictions.csv');
 
         var foundindex = -1;
         var csvObjs = [];
-        if (fileFound) {
-            console.info('CSV successfully loaded');
+
+        //TODO this is not finding the line to replace correctly
+        if (predictionCSV) {
+            log.audit({title: 'repPredictions CSV successfully loaded'});
             csvObjs = processCSV(predictionCSV);
     
             // search for index of pre-existing data
-            foundindex = csvObjs.findIndex(function(line) {
+            foundindex = csvObjs.findIndex(line => {
                 if (line.date) {
                     const date = new Date(line.date);
                     const hasYear = (year == date.getFullYear());
                     const hasMonth = (month == date.getMonth());
                     if (hasMonth && hasYear) {
-                        const hasRep = !(repName && repName !== line.salesrep);
-                        const hasProperty = !(propertyName && propertyName !== line.property);
+                        const hasRep = (repName == line.salesrep);
+                        const hasProperty = (propertyName == line.property);
                         if (hasRep && hasProperty) return true;
                     }
                 }
@@ -798,20 +782,18 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         }
 
         const csvContent = csvString(csvObjs);
-        console.info(csvContent);
 
         var newCSV = file.create({
             name: 'repPredictions.csv',
             fileType: file.Type.CSV,
             contents: csvContent
         });
-        console.info('LINE AFTER CREATE / BEFORE SAVE');
         // TODO make this a function that validates and finds the correct file path
         newCSV.encoding = file.Encoding.UTF_8;
         newCSV.folder = 1020;
         
         const fileId = newCSV.save();
-        console.info('saving new CSV with file id: ' + fileId);
+        log.audit({title: 'saving new CSV with file id: ' + fileId});
     }
 
     function csvString(cvsObjs) {
@@ -831,7 +813,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             });
             csvArray.push(values.join(','));
         });
-        console.info(csvArray);
         return csvArray.join('\n');
     }
 
@@ -869,6 +850,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             })
         }
     }
+
+    const numOr0 = n => isNaN(parseInt(n)) ? 0 : parseInt(n);
 
     exports.onRequest = onRequest;
     return exports;
