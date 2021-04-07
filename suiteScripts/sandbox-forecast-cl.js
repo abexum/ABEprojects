@@ -1,4 +1,4 @@
-define(["N/currentRecord", "N/record"], function (cr, record) {
+define(['N/currentRecord', 'N/record'], function(cr, record) {
 
     /**
      * Client Script to perform search in forecast suitelet
@@ -12,6 +12,7 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
      * @requires N/record
      * 
      * @NApiVersion 2.x
+     * @ModuleScope Public
      * @NScriptType ClientScript
      */
     var exports = {};
@@ -23,8 +24,17 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
 
     var editlog = [];
 
+    var predictionsUpdated = false;
+
     function fieldChanged(context) {
-        if (context.fieldId == 'custpage_startdate' || context.fieldId === 'custpage_fullyear') {
+
+        if (context.fieldId == 'custpage_worstcase'
+            || context.fieldId === 'custpage_mostlikely'
+            || context.fieldId === 'custpage_upside') {
+            predictionsUpdated = true;
+        }
+
+        if (context.fieldId === 'custpage_startdate' || context.fieldId === 'custpage_fullyear') {
             console.info("datesChanged...");
             var startdate = page.getValue({fieldId: 'custpage_startdate'});
             const fullyear = page.getValue({fieldId: 'custpage_fullyear'});
@@ -192,8 +202,22 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
 
         Promise.all(opportunityEntries.map(setProbabilityAndAmounts));
 
+        if (predictionsUpdated) {
+            const worstcase = page.getValue({fieldId: 'custpage_worstcase'});
+            const mostlikely = page.getValue({fieldId: 'custpage_mostlikely'});
+            const upside = page.getValue({fieldId: 'custpage_upside'});
+
+            const filteredURL = new URL(document.location.href);
+
+            filteredURL.searchParams.set('worstcase', worstcase);
+            filteredURL.searchParams.set('mostlikely', mostlikely);
+            filteredURL.searchParams.set('upside', upside);
+            window.location.replace(filteredURL);
+        }
+
         editlog = [];
     }
+
     function getInternalId(sublistId, line) {
         const tranid = page.getSublistValue({
             sublistId: sublistId,
@@ -202,13 +226,16 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
         })
         return getIDfromHTML(tranid);
     }
+
     function getIDfromHTML(html){
         const params = html.substring(html.indexOf('id='));
         return params.substring(3,params.indexOf('&'));
     }
+
     function edited(entry) {
         return editlog.includes(entry.id);
     }
+
     function getEntryValues(sublistId) {
         entryValues = [];
         const total = page.getLineCount({sublistId: sublistId});
@@ -283,6 +310,7 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
         console.info('Updated Proposal ID: ' + entryObj.id);
         return submission;
     }
+
     function setProbabilityAndAmounts(entryObj) {
         const loaded = record.load.promise({
             type: entryObj.type,
@@ -326,18 +354,6 @@ define(["N/currentRecord", "N/record"], function (cr, record) {
         });
         return;
     }
-
-    // function saveQuota(csvObj) {
-
-    //     const quotaFile = file.create({
-    //         name: 'testResults.csv',
-    //         fitelType: file.Type.CSV,
-    //         contents: csvObj
-    //     })
-    //     quotaFile.folder = 1020; // consider not hard coding this?
-    //     quotaFile.save();
-
-    // }
 
     exports.pageInit = pageInit;
     exports.performSearch = performSearch;

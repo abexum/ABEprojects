@@ -295,7 +295,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             title: 'lastupdate value',
             details: csvTotals.lastupdate
         })
-        // if (csvTotals.lastupdate !== null) lastupdateField.defaultValue = csvTotals.lastupdate;
+        if (csvTotals.lastupdate !== null) lastupdateField.defaultValue = csvTotals.lastupdate;
         lastupdateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
 
 
@@ -597,7 +597,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         let quotas = [];
         // filter quotas
         const month = filter.startdate.getMonth();
-        const year = filter.startdate.getYear();
+        const year = filter.startdate.getFullYear();
 
         const lessInfo = (moreInfo) => {
             const {salesrep, property, date, amountmonthly, worstcase, mostlikely, upside, lastupdate} = moreInfo;
@@ -633,7 +633,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         csvObjs.forEach(quota => {
             if (quota.date) {
                 const date = new Date(quota.date);
-                const hasYear = (year == date.getYear());
+                const hasYear = (year == date.getFullYear());
                 const hasMonth = filter.fullyear || (month == date.getMonth());
                 if (hasMonth && hasYear) {
                     const hasRep = !(repName && repName !== quota.salesrep);
@@ -704,6 +704,135 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             return true;
         });
         return csvObjArray;
+    }
+
+    function updateCSV() {
+        // TODO change this to use the values from filter
+        const salesrep = page.getValue({fieldId: 'custpage_salesrep'});
+        const property = page.getValue({fieldId: 'custpage_property'});
+        const startdate = page.getValue({fieldId: 'custpage_startdate'});
+        const fullyear = page.getValue({fieldId: 'custpage_fullyear'});
+        const worstcase = page.getValue({fieldId: 'custpage_worstcase'});
+        const mostlikely = page.getValue({fieldId: 'custpage_mostlikely'});
+        const upside = page.getValue({fieldId: 'custpage_upside'});
+
+        const getRepName = (id) => {
+            if (!id || id === '0') return '';
+            const employeeRecord = record.load({type: record.Type.EMPLOYEE, id: id});
+            return employeeRecord.getValue({fieldId: 'entityid'});
+        }
+        const getPropertyName = (id) => {
+            if (!id || id === '0') return '';
+            const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
+            return propertyRecord.getValue({fieldId: 'name'});
+        }
+
+        const repName = getRepName(salesrep);
+        const propertyName = getPropertyName(property);
+        const month = startdate.getMonth();
+        const year = startdate.getFullYear();
+        const lastupdate = new Date();
+
+        const updatedPredictions = {
+            salesrep: repName,
+            property: propertyName,
+            date: month + '/1/' + year,
+            worstcase: worstcase,
+            mostlikely: mostlikely,
+            upside: upside,
+            lastupdate: lastupdate
+        }
+        console.info('updatedPredictions');
+        console.info(JSON.stringify(updatedPredictions));
+
+        // predictions are salesrep, property and month specific for edits
+        if (salesrep === '0' || property === '0' || fullyear) return;
+
+        var fileFound = false;
+        var predictionCSV = '';
+        
+        try {
+            predictionCSV = file.load({
+                id: './repPredictions.csv'
+            });
+            fileFound = true;
+        } catch(err) {
+            if (err.name == 'RCRD_DSNT_EXIST'){
+                console.info('Creating new repPredictions.csv');
+            } else {
+                log.error({
+                    title: err.toString(),
+                    details: err.stack
+                });
+
+                console.info(err.stack);
+            }
+        }
+
+        var foundindex = -1;
+        var csvObjs = [];
+        if (fileFound) {
+            console.info('CSV successfully loaded');
+            csvObjs = processCSV(predictionCSV);
+    
+            // search for index of pre-existing data
+            foundindex = csvObjs.findIndex(function(line) {
+                if (line.date) {
+                    const date = new Date(line.date);
+                    const hasYear = (year == date.getFullYear());
+                    const hasMonth = (month == date.getMonth());
+                    if (hasMonth && hasYear) {
+                        const hasRep = !(repName && repName !== line.salesrep);
+                        const hasProperty = !(propertyName && propertyName !== line.property);
+                        if (hasRep && hasProperty) return true;
+                    }
+                }
+                return false;
+            });
+        }
+
+        if (foundindex !== -1) {
+            csvObjs.splice(foundindex, 1, updatedPredictions);
+        } else {
+            csvObjs.push(updatedPredictions);
+        }
+
+        const csvContent = csvString(csvObjs);
+        console.info(csvContent);
+
+        var newCSV = file.create({
+            name: 'repPredictions.csv',
+            fileType: file.Type.CSV,
+            contents: csvContent
+        });
+        console.info('LINE AFTER CREATE / BEFORE SAVE');
+        // TODO make this a function that validates and finds the correct file path
+        newCSV.encoding = file.Encoding.UTF_8;
+        newCSV.folder = 1020;
+        
+        const fileId = newCSV.save();
+        console.info('saving new CSV with file id: ' + fileId);
+    }
+
+    function csvString(cvsObjs) {
+        var csvArray = [];
+        var keys = [];
+        Object.keys(cvsObjs[0]).forEach(key => {
+            keys.push(key);
+        });
+        csvArray.push(keys.join(','));
+        cvsObjs.forEach(obj => {
+            var values = [];
+            Object.keys(obj).forEach(key => {
+                var value = (obj[key].toString().includes(','))
+                    ? ('\"' + obj[key] + '\"')
+                    : obj[key];
+                values.push(value);
+            });
+            csvArray.push(values.join(','));
+        });
+        console.info(csvArray);
+        return csvArray.join('\n');
     }
 
     function refreshQuotaResults() {
