@@ -2,7 +2,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function (s, url, task, file, format, record, ui, e, log) {
 
     /**
-     * Forecast Suitelet: Display Search Results in a List
+     * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
      *
      * @exports sandbox-forecast
      *
@@ -54,6 +54,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.TEXT
         },
         { 
+            id: 'custbody_advertiser1',
+            label: 'Primary Advertiser',
+            type: ui.FieldType.TEXT
+        },
+        { 
             id: 'tranid',
             label: type+' #',
             type: ui.FieldType.TEXTAREA
@@ -62,25 +67,24 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id: 'trandate',
             label: 'Transaction Date',
             type: ui.FieldType.DATE
+        }
+    ];
+    const opportunityFields = [
+        {
+            id:'expectedclosedate',
+            label: 'Expected Close',
+            type: ui.FieldType.DATE
         },
         {
             id: 'custcol_agency_mf_flight_end_date',
             label: 'Flight End',
             type: ui.FieldType.DATE
-        }, // rffield
-        { 
-            id: 'custbody_advertiser1', // TODO find the company name here
-            label: 'Primary Advertiser',
-            type: ui.FieldType.TEXT
-        }
-    ];
-    const opportunityFields = [
-        // {
-        //     id: 'custcolforecast_inclusion',
-        //     label: 'Forecast',
-        //     type: ui.FieldType.CHECKBOX
-        // },
-        
+        },
+        {
+            id: 'custcolforecast_inclusion',
+            label: 'Forecast',
+            type: ui.FieldType.CHECKBOX
+        },
         { 
             id: 'probability',
             label: 'Probability',
@@ -93,6 +97,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         }
     ];
     const orderFields = [
+        {
+            id: 'custcol_agency_mf_flight_end_date',
+            label: 'Flight End',
+            type: ui.FieldType.DATE
+        },
         {
             id: 'item',
             label: 'Item',
@@ -120,7 +129,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         estimate: {
             id: 'tranid',
             label: 'Proposals',
-            fields: commonFields('Proposal').concat(opportunityFields),
+            fields: commonFields('Proposal').concat(opportunityFields.slice(1)),
             searchFilter: ['Estimate']
         },
         salesorder: {
@@ -131,7 +140,14 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         },
     };
 
-    const calcs = {weighted: 0, gross: 0, universal: 0};
+    const calcs = {
+        weighted: 0, 
+        gross: 0, 
+        universal: 0, 
+        opportunity: 0, 
+        estimate: 0, 
+        salesorder: 0
+    };
 
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
@@ -162,13 +178,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
 
         filterOptionsSection(page, filter);
+        // run search without display limit to get calcs
+        fullSearch(filter);
 
+        // run searches that build sublists in display
         Object.keys(typesDictionary).forEach(key => {
             renderList(page, key, displaySearch(key, filter), filter);
         });
-
-        // run search without display limit to get calcs
-        fullSearch(filter);
 
         const quota = getQuotaCSVtotal(filter);
         const predictionValues = getPredictionCSVtotals(filter);
@@ -276,6 +292,15 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
         quotaField.defaultValue = quota;
         quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+
+        const bookedField = page.addField({
+            id: 'custpage_booked',
+            label: 'Booked %',
+            type: ui.FieldType.PERCENT,
+            container: 'custpage_calcsgroup'
+        });
+        bookedField.defaultValue = ((calcs.salesorder/quota)*100).toFixed(2);
+        bookedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
     }
 
     function predictionSection(page, filter, predictionValues) {
@@ -289,7 +314,10 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
-        if (predictionValues.worstcase) worstField.defaultValue = predictionValues.worstcase;
+        worstField.defaultValue = (predictionValues.worstcase)  
+            ? predictionValues.worstcase
+            : calcs.salesorder.toFixed(2);
+        
         const likelyField = page.addField({
             id: 'custpage_mostlikely',
             label: 'Most Likely',
@@ -297,6 +325,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             container: 'custpage_predictiongroup'
         });
         if (predictionValues.mostlikely) likelyField.defaultValue = predictionValues.mostlikely;
+
         const upsideField = page.addField({
             id: 'custpage_upside',
             label: 'Upside',
@@ -304,16 +333,14 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             container: 'custpage_predictiongroup'
         });
         if (predictionValues.upside) upsideField.defaultValue = predictionValues.upside;
+
         const lastupdateField = page.addField({
             id: 'custpage_lastupdate',
             label: 'Last Update',
             type: ui.FieldType.DATETIMETZ,
             container: 'custpage_predictiongroup'
         });
-        log.debug({
-            title: 'lastupdate value',
-            details: predictionValues.lastupdate
-        })
+
         if (predictionValues.lastupdate) lastupdateField.defaultValue = predictionValues.lastupdate;
         lastupdateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
 
@@ -351,10 +378,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     }
 
     function renderList(form, type, results, filter) {
-        // calculate total gross amount
-        const grossTotal = results.reduce((total, current) => numOr0(total) + numOr0(current.amount), 0);
-        const formatTotal = format.format({value: grossTotal, type: format.Type.CURRENCY}).slice(0,-3);
 
+        const formatTotal = format.format({value: calcs[type], type: format.Type.CURRENCY}).slice(0,-3);
         const list = form.addSublist({
             id : 'custpage_' + type,
             type : ui.SublistType.LIST,
@@ -370,16 +395,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         columns.forEach(id => {
             // remove columns searched for
             if (skip(id.id)) return;
-            // insert forecast checkbox before tranid
-            if (type !== 'salesorder' && id.id == 'tranid') {
-                const forecast = list.addField({
-                    id: 'custpage_forecast',
-                    label: 'Forecast',
-                    type: ui.FieldType.CHECKBOX,
-                });
-                forecast.defaultValue = (type === 'estimate') ? 'T' : 'F';
-            }
-            // add next column
             const field = list.addField(id);
             // extras for input fields
             // entity status would go here as dropdown if needed
@@ -451,33 +466,29 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     }
 
     function fullSearch(filter) {
-        // build filters once
         let filters = {};
         const columns = (type) => {
             const cols = ['amount'];
             if (type !== 'salesorder') {
                 cols.push('probability');
-                // cols.push('custcolforecast_inclusion');
+                cols.push('custcolforecast_inclusion');
             }
             return cols;
         };
 
-        // TODO uncomment all the forecast code once this is implemented everywhere
         const incrementCalcs = (res, type) => {
             const amount = res.getValue({name: 'amount'});
             const probability = res.getValue({name: 'probability'});
-            // const forecast = res.getValue({name: 'custcolforecast_inclusion'});
+            const forecast = res.getValue({name: 'custcolforecast_inclusion'});
 
             const grossnum = parseFloat(amount);
             calcs.universal+= grossnum;
+            calcs[type]+=grossnum;
             if (type !== 'salesorder') {
                 const weightvalue = grossnum*(parseFloat(probability)/100);
-                // if (forecast) {
-                if (type === 'estimate') {
+                if (forecast) {
                     calcs.weighted+=weightvalue;
                     calcs.gross+=grossnum;
-                    // TODO add temporary code here to set all the 
-                    // custcolforecast_inclusion values to true for proposals
                 }
             } else {
                 calcs.weighted+=grossnum;
@@ -601,7 +612,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function getSalesReps(field, selected) {
         field.addSelectOption({
             value: 0,
-            text: '-- select sales rep --',
+            text: '-- All --',
             isSelected: false
         });
 
@@ -624,7 +635,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function getProperties(field, selected) {
         field.addSelectOption({
             value: 0,
-            text: '-- select property --',
+            text: '-- All --',
             isSelected: false
         });
 
@@ -860,7 +871,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         var foundindex = -1;
         var csvObjs = [];
 
-        //TODO this is not finding the line to replace correctly
         if (predictionCSV) {
             log.audit({title: 'repPredictions CSV successfully loaded'});
             csvObjs = processCSV(predictionCSV);
@@ -894,7 +904,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             fileType: file.Type.CSV,
             contents: csvContent
         });
-        // TODO make this a function that validates and finds the correct file path
+        // file id is hard coded here (prod environment)
         newCSV.encoding = file.Encoding.UTF_8;
         newCSV.folder = 1020;
         

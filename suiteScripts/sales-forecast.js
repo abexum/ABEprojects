@@ -589,7 +589,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function getSalesReps(field, selected) {
         field.addSelectOption({
             value: 0,
-            text: '-- select sales rep --',
+            text: '-- All --',
             isSelected: false
         });
 
@@ -612,7 +612,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function getProperties(field, selected) {
         field.addSelectOption({
             value: 0,
-            text: '-- select property --',
+            text: '-- All --',
             isSelected: false
         });
 

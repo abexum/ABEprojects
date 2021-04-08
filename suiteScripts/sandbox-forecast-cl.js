@@ -1,7 +1,7 @@
 define(['N/currentRecord', 'N/record'], function(cr, record) {
 
     /**
-     * Client Script to perform search in forecast suitelet
+     * Client Script to perform search and save values in forecast suitelet
      *
      * @exports sandbox-forecast/cl
      *
@@ -57,12 +57,16 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             });
         }
         // Updates for weighted and forecast calcs when line items change
-        if (context.fieldId === 'custpage_forecast'
+        if (context.fieldId === 'custcolforecast_inclusion'
             || context.fieldId === 'probability' 
             || context.fieldId === 'amount') {
+            
             const sublistId = context.sublistId;
             const line = context.line;
+
             console.info('forecast changed... ' + sublistId + ' line# ' + line);
+            editlog.push(getInternalId(sublistId, line)) // add to list of edited records for later save
+
             var weighted = page.getSublistValue({
                 sublistId: sublistId,
                 fieldId: 'custpage_weighted',
@@ -77,10 +81,10 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             var calcgross = page.getValue({fieldId: 'custpage_calcgross'});
             const checked = page.getSublistValue({
                 sublistId: sublistId,
-                fieldId: 'custpage_forecast',
+                fieldId: 'custcolforecast_inclusion',
                 line: line
             });
-            if (context.fieldId === 'custpage_forecast') {
+            if (context.fieldId === 'custcolforecast_inclusion') {
                 // add or remove gross and weighted for forecast checkbox action
                 if (checked) {
                     calcweighted += weighted;
@@ -94,7 +98,6 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
                     page.setValue({fieldId: 'custpage_calcgross', value: calcgross.toFixed(2)});
                 }
             } else { // line item change via either probability or gross
-                editlog.push(getInternalId(sublistId, line)) // add to list of edited records for later save
                 console.info('item amount change...');
                 const probability = page.getSublistValue({
                     sublistId: sublistId,
@@ -202,9 +205,9 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         const opportunityEntries = getEntryValues('custpage_opportunity').filter(edited);
         const proposalEntries = getEntryValues('custpage_estimate').filter(edited);
 
-        Promise.all(proposalEntries.map(setProbability))
+        Promise.all(proposalEntries.map(setTransactionRecordValues))
 
-        Promise.all(opportunityEntries.map(setProbabilityAndAmounts));
+        Promise.all(opportunityEntries.map(setTransactionRecordValues));
 
         if (predictionsUpdated) {
             const worstcase = page.getValue({fieldId: 'custpage_worstcase'});
@@ -242,6 +245,9 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
 
     function getEntryValues(sublistId) {
         entryValues = [];
+        const type = (sublistId === 'custpage_opportunity')
+            ? record.Type.OPPORTUNITY
+            : record.Type.ESTIMATE;
         const total = page.getLineCount({sublistId: sublistId});
         var lineitems = [];
         var preventry = {};
@@ -255,42 +261,43 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
                 line: line
             })
 
-            if (sublistId === 'custpage_estimate') {
-                if (previd !== id){
-                    entryValues.push({
-                        id: id,
-                        type: record.Type.ESTIMATE,
-                        probability: probability
-                    });
-                    previd = id;
-                }
-                continue;
-            }
             if (previd !== id && line !== 0) {
                 entryValues.push(preventry);
                 lineitems = [];
                 previd = id;
             }
-            var amount = page.getSublistValue({
+
+            var forecast = page.getSublistValue({
                 sublistId: sublistId,
-                fieldId: 'amount',
+                fieldId: 'custcolforecast_inclusion',
                 line: line
             })
+
             var flightend = page.getSublistValue({
                 sublistId: sublistId,
                 fieldId: 'custcol_agency_mf_flight_end_date',
                 line: line
             }).toString();
+
+            var amount = page.getSublistValue({
+                sublistId: sublistId,
+                fieldId: 'amount',
+                line: line
+            })
+
             lineitems.push({
+                forecast: forecast,
                 flightend: flightend,
                 gross: amount
             });
+
             preventry = {
                 id: id,
-                type: record.Type.OPPORTUNITY,
+                type: type,
                 probability: probability,
                 lineitems: lineitems,
             }
+
             if (line === (total-1)){
                 entryValues.push(preventry);
             }
@@ -299,23 +306,7 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         return entryValues;
     }
 
-    function setProbability(entryObj) {
-        const submission = record.submitFields.promise({
-            type: entryObj.type,
-            id: entryObj.id,
-            values: {
-                probability: entryObj.probability
-            },
-            options: {
-                enablesourcing: false,
-                ignoreMandatoryFields: true
-            }
-        });
-        console.info('Updated Proposal ID: ' + entryObj.id);
-        return submission;
-    }
-
-    function setProbabilityAndAmounts(entryObj) {
+    function setTransactionRecordValues(entryObj) {
         const loaded = record.load.promise({
             type: entryObj.type,
             id: entryObj.id,
@@ -342,15 +333,25 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
 
             // update line item amounts from gross in table
             entryObj.lineitems.forEach(function(itementry){
+                // set forecast include
                 recObj.setSublistValue({
                     sublistId: 'item',
-                    fieldId: 'amount',
+                    fieldId: 'custcolforecast_inclusion',
                     line: dateindex[itementry.flightend],
-                    value: itementry.gross
+                    value: itementry.forecast
                 });
+                // set amount on opportunity
+                if (entryObj.type === record.Type.OPPORTUNITY) {
+                    recObj.setSublistValue({
+                        sublistId: 'item',
+                        fieldId: 'amount',
+                        line: dateindex[itementry.flightend],
+                        value: itementry.gross
+                    });  
+                }
             });
             var recordId = recObj.save({ignoreMandatoryFields: true});
-            console.info('Updated Opportunity ID: ' + recordId);
+            console.info('Updated Transaction ID: ' + recordId);
         }).catch(function(reason) {
             console.info("Failed: " + reason);
             console.info('error name: ' + reason.name);
