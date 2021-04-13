@@ -46,57 +46,57 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         { 
             value: 'worstcase',
             text: 'Worst Case',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'worstcase')
         },
         { 
             value: 'mostlikely',
             text: 'Most Likely',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'mostlikely')
         },
         { 
             value: 'upside',
             text: 'Upside',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'upside')
         },
         { 
             value: 'weighted',
             text: 'Weighted',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'weighted')
         },
         { 
             value: 'gross',
             text: 'Gross',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'gross')
         },
         { 
             value: 'universal',
             text: 'Universe',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'universal')
         },
         { 
             value: 'opportunity',
             text: 'Opportunities',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'opportunity')
         },
         { 
             value: 'estimate',
             text: 'Proposals',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'estimate')
         },
         {
             value: 'salesorder',
             text: 'Orders',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'salesorder')
         },
         { 
             value: 'quota',
             text: 'Quota',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'quota')
         },
         {
             value: 'booked',
             text: 'Booked %',
-            isSelected: (selected === this.value)
+            isSelected: (selected === 'booked')
         }
         // make this inline html and heatmap
         // 0-50 red
@@ -116,7 +116,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             year = colDate.getFullYear();
             fieldObjs.push({ 
                 id: monthIndex + '_' + year,
-                label: abreviatedMonths[monthIndex] + ' ' + year.slice(-2),
+                label: abreviatedMonths[monthIndex] + ' ' + year.toString().slice(-2),
                 type: ui.FieldType.TEXT
             });
         }
@@ -156,9 +156,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         const filter = getFilter(context.request);
 
-        // handle new repPredictions from save event
-        const repPredictions = getRepPredictions(context.request);
-        if (repPredictions !== null) updateCSV(filter, repPredictions);
+        // // handle new repPredictions from save event
+        // const repPredictions = getRepPredictions(context.request);
+        // if (repPredictions !== null) updateCSV(filter, repPredictions);
 
         page.clientScriptModulePath = "./sandbox-overview-cl.js";
         page.addButton({
@@ -169,7 +169,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         filterOptionsSection(page, filter);
         // run search without display limit to get calcs
-        fullSearch(filter);
+        // fullSearch(filter);
 
         // const quota = getQuotaCSVtotal(filter);
         // const predictionValues = getPredictionCSVtotals(filter);
@@ -206,8 +206,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             container: 'custpage_filtergroup'
         });
         getProperties(propertySearchField, filter.property);
+        propertySearchField.updateBreakType({ breakType : ui.FieldBreakType.STARTCOL });
 
-        const displayValueField = pageForm.addField({
+        const displayValueField = page.addField({
             id: 'custpage_displayvalue',
             label: 'Display Value',
             type: ui.FieldType.SELECT,
@@ -216,6 +217,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         displayValues(filter.displayvalue).forEach(calc => {
             displayValueField.addSelectOption(calc);
         })
+        displayValueField.updateBreakType({ breakType : ui.FieldBreakType.STARTCOL });
 
         const startDateField = page.addField({
             id: 'custpage_startdate',
@@ -223,9 +225,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.DATE,
             container: 'custpage_filtergroup'
         });
-        startDateField.updateBreakType({
-            breakType : ui.FieldBreakType.STARTCOL
-        });
+        startDateField.updateBreakType({ breakType : ui.FieldBreakType.STARTCOL });
         startDateField.defaultValue = filter.startdate;
     }
 
@@ -246,18 +246,18 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         // const formatTotal = format.format({value: calcs[type], type: format.Type.CURRENCY}).slice(0,-3);
         const list = form.addSublist({
-            id: 'custpage_' + grouptType[type].id,
+            id: 'custpage_' + type,
             type: ui.SublistType.LIST,
             label: groupType[type].label// + ' [$' + formatTotal +']'
         });
         list.addField({
-            id: 'custpage_' + grouptType[type].id + '_name',
+            id: 'custpage_' + type + '_name',
             label: groupType[type].label,
             type: ui.FieldType.TEXT
         });
 
         groupType[type].values.forEach(value => {
-            list.setSublistValue(value.setSublistValue);
+            list.setSublistValue(value.sublistEntry);
         });
 
         dateFields(filter.startdate).forEach( month => {
