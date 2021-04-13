@@ -54,6 +54,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.TEXT
         },
         { 
+            id: 'custbody_advertiser1',
+            label: 'Primary Advertiser',
+            type: ui.FieldType.TEXT
+        },
+        { 
             id: 'tranid',
             label: type+' #',
             type: ui.FieldType.TEXTAREA
@@ -62,24 +67,19 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id: 'trandate',
             label: 'Transaction Date',
             type: ui.FieldType.DATE
+        }
+    ];
+    const opportunityFields = [
+        {
+            id:'expectedclosedate',
+            label: 'Expected Close',
+            type: ui.FieldType.DATE
         },
         {
             id: 'custcol_agency_mf_flight_end_date',
             label: 'Flight End',
             type: ui.FieldType.DATE
         },
-        { 
-            id: 'custbody_advertiser1',
-            label: 'Primary Advertiser',
-            type: ui.FieldType.TEXT
-        }
-    ];
-    const opportunityFields = [
-        // { 
-        //     id: 'entitystatus',
-        //     label: 'Status',
-        //     type: ui.FieldType.PASSWORD
-        // },
         {
             id: 'custcolforecast_inclusion',
             label: 'Forecast',
@@ -97,6 +97,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         }
     ];
     const orderFields = [
+        {
+            id: 'custcol_agency_mf_flight_end_date',
+            label: 'Flight End',
+            type: ui.FieldType.DATE
+        },
         {
             id: 'item',
             label: 'Item',
@@ -124,7 +129,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         estimate: {
             id: 'tranid',
             label: 'Proposals',
-            fields: commonFields('Proposal').concat(opportunityFields),
+            fields: commonFields('Proposal').concat(opportunityFields.slice(1)),
             searchFilter: ['Estimate']
         },
         salesorder: {
@@ -135,7 +140,14 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         },
     };
 
-    const calcs = {weighted: 0, gross: 0, universal: 0, opportunity: 0, estimate: 0, salesorder: 0};
+    const calcs = {
+        weighted: 0, 
+        gross: 0, 
+        universal: 0, 
+        opportunity: 0, 
+        estimate: 0, 
+        salesorder: 0
+    };
 
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
@@ -280,6 +292,15 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
         quotaField.defaultValue = quota;
         quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+
+        const bookedField = page.addField({
+            id: 'custpage_booked',
+            label: 'Booked %',
+            type: ui.FieldType.PERCENT,
+            container: 'custpage_calcsgroup'
+        });
+        bookedField.defaultValue = ((calcs.salesorder/quota)*100).toFixed(2);
+        bookedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
     }
 
     function predictionSection(page, filter, predictionValues) {
@@ -294,6 +315,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             container: 'custpage_predictiongroup'
         });
         if (predictionValues.worstcase) worstField.defaultValue = predictionValues.worstcase;
+        
         const likelyField = page.addField({
             id: 'custpage_mostlikely',
             label: 'Most Likely',
@@ -301,6 +323,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             container: 'custpage_predictiongroup'
         });
         if (predictionValues.mostlikely) likelyField.defaultValue = predictionValues.mostlikely;
+
         const upsideField = page.addField({
             id: 'custpage_upside',
             label: 'Upside',
@@ -308,16 +331,14 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             container: 'custpage_predictiongroup'
         });
         if (predictionValues.upside) upsideField.defaultValue = predictionValues.upside;
+
         const lastupdateField = page.addField({
             id: 'custpage_lastupdate',
             label: 'Last Update',
             type: ui.FieldType.DATETIMETZ,
             container: 'custpage_predictiongroup'
         });
-        log.debug({
-            title: 'lastupdate value',
-            details: predictionValues.lastupdate
-        })
+
         if (predictionValues.lastupdate) lastupdateField.defaultValue = predictionValues.lastupdate;
         lastupdateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
 
@@ -325,6 +346,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             worstField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
             likelyField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
             upsideField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+        } else if (!predictionValues.worstcase) {
+            worstField.defaultValue = calcs.salesorder.toFixed(2);
         }
     }
 

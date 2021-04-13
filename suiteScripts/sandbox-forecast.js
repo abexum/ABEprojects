@@ -42,6 +42,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
      * @function onRequest
      */
 
+
+
     const commonFields = type => [
         { 
             id: 'salesrep',
@@ -148,6 +150,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         estimate: 0, 
         salesorder: 0
     };
+    const salesrepSelections = [];
+    const propertySelections = [];
 
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
@@ -220,6 +224,14 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             container: 'custpage_filtergroup'
         });
         getProperties(propertySearchField, filter.property);
+
+        const advertiserSearchField = page.addField({
+            id: 'custpage_advertiser',
+            label: 'Primary Advertiser',
+            type: ui.FieldType.SELECT,
+            container: 'custpage_filtergroup'
+        });
+        getAdvertisers(advertiserSearchField, filter.advertiser);
 
         const startDateField = page.addField({
             id: 'custpage_startdate',
@@ -314,9 +326,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.CURRENCY,
             container: 'custpage_predictiongroup'
         });
-        worstField.defaultValue = (predictionValues.worstcase)  
-            ? predictionValues.worstcase
-            : calcs.salesorder.toFixed(2);
+        if (predictionValues.worstcase) worstField.defaultValue = predictionValues.worstcase;
         
         const likelyField = page.addField({
             id: 'custpage_mostlikely',
@@ -348,11 +358,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             worstField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
             likelyField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
             upsideField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+        }else if (!predictionValues.worstcase) {
+            worstField.defaultValue = calcs.salesorder.toFixed(2);
         }
     }
 
     function getFilter(request) {
-        const { salesrep, property, startdate, enddate, fullyear } = request.parameters;
+        const { salesrep, property, advertiser, startdate, enddate, fullyear } = request.parameters;
 
         // tool is first opened, kickoff the quota update task in preparation for a search
         if (!(salesrep || property || startdate || enddate || fullyear)) runTheQuotaUpdateTask = true;
@@ -364,6 +376,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return {
             salesrep: salesrep,
             property: property,
+            advertiser: advertiser,
             startdate: startValue,
             enddate: endValue,
             fullyear: fy
@@ -622,6 +635,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             filters: ['subsidiary', s.Operator.ANYOF, ['2']]
         }).run().each(res => {
             if (res.getValue({name: 'issalesrep'})){
+                salesrepSelections.push(res.id.toString());
                 field.addSelectOption({
                     value: res.id,
                     text: res.getValue({name: 'entityid'}),
@@ -647,11 +661,86 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 ['isinactive', s.Operator.IS, ['F']]
             ]
         }).run().each(res => {
+            propertySelections.push(res.id.toString());
             field.addSelectOption({
                 value: res.id,
                 text: res.getValue({name: 'name'}),
                 isSelected: (res.id === selected)
             });
+            return true;
+        });
+    }
+
+    function getAdvertisers(field, selected) {
+        field.addSelectOption({
+            value: 0,
+            text: '-- All --',
+            isSelected: false
+        });
+        let adFilter = [];
+        const subsFilter = s.createFilter({
+            name: 'subsidiary',
+            operator: s.Operator.ANYOF,
+            values: '2'
+        });
+        adFilter.push(subsFilter);
+        const activeFilter = s.createFilter({
+            name: 'isinactive',
+            operator: s.Operator.IS,
+            values: 'F'
+        });
+        adFilter.push(activeFilter);
+        const nameFilter = s.createFilter({
+            name: 'altname',
+            operator: s.Operator.ISNOTEMPTY
+        });
+        adFilter.push(nameFilter);
+
+        const repFilter = s.createFilter({
+            name: 'salesrep',
+            operator: s.Operator.ANYOF,
+            values: salesrepSelections
+        });
+        adFilter.push(repFilter);
+
+        // const propFilter = s.createFilter({
+        //     name: 'property',
+        //     operator: s.Operator.ANYOF,
+        //     values: propertySelections
+        // });
+        // adFilter.push(propFilter);
+
+
+        const statusFilter = s.createFilter({
+            name: 'entitystatus',
+            operator: s.Operator.ANYOF,
+            values:'13'
+        });
+        adFilter.push(statusFilter);
+        const searchResults= [];
+        s.create({
+            type: s.Type.CUSTOMER,
+            columns: ['altname'],
+            filters: adFilter
+        }).run().each(res => {
+            // const advertiserRecord = record.load({type: record.Type.CUSTOMER, id: res.id});
+            // log.debug({
+            //     title: 'advertiser record',
+            //     details: JSON.stringify(advertiserRecord)
+            // })
+            field.addSelectOption({
+                value: res.id,
+                text: res.getValue({name: 'altname'}),
+                isSelected: (res.id === selected)
+            });
+            searchResults.push(res.id);
+            if (searchResults.length === 300) {
+            log.debug({
+                title: 'advertiser records',
+                details: searchResults
+            })
+                return false;
+            }
             return true;
         });
     }
@@ -702,6 +791,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         if (!id || id === '0') return '';
         const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
         return propertyRecord.getValue({fieldId: 'name'});
+    }
+    const getAdvertiserName = (id) => {
+        if (!id || id === '0') return '';
+        const advertiserRecord = record.load({type: record.Type.CUSTOMER, id: id});
+        return advertiserRecord.getValue({fieldId: 'altname'});
     }
 
     function getQuotaCSVtotal(filter) {
