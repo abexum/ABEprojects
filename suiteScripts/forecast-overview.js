@@ -2,9 +2,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function (s, url, task, file, format, record, ui, e, log) {
 
     /**
-     * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
+     * Forecast Overview Suitelet: Month summary data from sales forecast
      *
-     * @exports sandbox-overview
+     * @exports forecast-overview
      *
      * @copyright AC Business Media
      * @author Ashe B Exum <abexum@gmail.com>
@@ -111,7 +111,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
     const dateFields = (filter) => {
         const fieldObjs = [];
-        const calcsCSV = grabFile('repPredictions.csv');
+        const calcsCSV = grabFile('forecastTotals.csv');
         for (let i = 0; i < 12; i++) {
             let colDate = new Date(filter.startdate.getFullYear(), filter.startdate.getMonth() + i, 1);
             monthIndex = colDate.getMonth();
@@ -150,7 +150,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         const filter = getFilter(context.request);
 
-        page.clientScriptModulePath = "./sandbox-overview-cl.js";
+        page.clientScriptModulePath = "./forecast-overview-cl.js";
         page.addButton({
             id : 'custpage_refreshButton',
             label : 'Refresh',

@@ -1,15 +1,14 @@
-define(['N/currentRecord', 'N/record'], function(cr, record) {
+define(['N/currentRecord'], function(cr) {
 
     /**
      * Client Script to refresh view in forecast overview suitelet
      *
-     * @exports sandbox-overview/cl
+     * @exports forecast-overview/cl
      *
      * @copyright AC Business Media
      * @author Ashe B Exum <abexum@gmail.com>
      * 
      * @requires N/currentRecord
-     * @requires N/record
      * 
      * @NApiVersion 2.x
      * @ModuleScope Public

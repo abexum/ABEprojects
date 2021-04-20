@@ -163,7 +163,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         // handle new repPredictions from save event
         const repPredictions = getRepPredictions(context.request);
-        if (repPredictions !== null) updateCSV(filter, repPredictions);
 
         page.clientScriptModulePath = "./sales-forecast-cl.js";
         page.addButton({
@@ -180,13 +179,15 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         filterOptionsSection(page, filter);
         // run search without display limit to get calcs
         fullSearch(filter);
+        const quota = getQuotaCSVtotal(filter);
+        if (repPredictions !== null) updateCSV(filter, repPredictions, quota);
 
         // run searches that build sublists in display
         Object.keys(typesDictionary).forEach(key => {
             renderList(page, key, displaySearch(key, filter), filter);
         });
 
-        const quota = getQuotaCSVtotal(filter);
+        
         const predictionValues = getPredictionCSVtotals(filter);
 
         calcSection(page, quota);
@@ -299,7 +300,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.PERCENT,
             container: 'custpage_calcsgroup'
         });
-        bookedField.defaultValue = ((calcs.salesorder/quota)*100).toFixed(2);
+        if (quota) bookedField.defaultValue = ((calcs.salesorder/quota)*100).toFixed(2);
         bookedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
     }
 
@@ -732,7 +733,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     }
 
     function getPredictionCSVtotals(filter) {
-        const repFilterCSV = grabFile('repPredictions.csv');
+        const repFilterCSV = grabFile('forecastTotals.csv');
         if (!repFilterCSV) return {worstcase: '', mostlikely: '', upside: '', lastupdate: ''};
 
         const csvObjs = processCSV(repFilterCSV);
@@ -838,7 +839,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return csvObjArray;
     }
 
-    function updateCSV(filter, repPredictions) {
+    function updateCSV(filter, repPredictions, quota) {
         const { salesrep, property, startdate, fullyear } = filter;
         const { worstcase, mostlikely, upside } = repPredictions;
 
@@ -848,6 +849,10 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const year = startdate.getFullYear();
         const lastupdate = new Date();
 
+        const { weighted, gross, universal, opportunity, estimate, salesorder } = calcs;
+
+        const booked = ((calcs.salesorder/quota)*100).toFixed(2);
+
         const updatedPredictions = {
             salesrep: repName,
             property: propertyName,
@@ -855,7 +860,15 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             worstcase: worstcase,
             mostlikely: mostlikely,
             upside: upside,
-            lastupdate: lastupdate
+            lastupdate: lastupdate,
+            weighted: weighted,
+            gross: gross,
+            universal: universal,
+            opportunity: opportunity,
+            estimate: estimate,
+            salesorder: salesorder,
+            quota: quota,
+            booked: booked
         }
 
         log.debug({
@@ -866,13 +879,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         // predictions are salesrep, property and month specific for edits
         if (salesrep === '0' || property === '0' || fullyear) return;
 
-        const predictionCSV = grabFile('repPredictions.csv');
+        const predictionCSV = grabFile('forecastTotals.csv');
 
         var foundindex = -1;
         var csvObjs = [];
 
         if (predictionCSV) {
-            log.audit({title: 'repPredictions CSV successfully loaded'});
+            log.audit({title: 'forecastTotals CSV successfully loaded'});
             csvObjs = processCSV(predictionCSV);
     
             // search for index of pre-existing data
@@ -900,7 +913,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const csvContent = csvString(csvObjs);
 
         var newCSV = file.create({
-            name: 'repPredictions.csv',
+            name: 'forecastTotals.csv',
             fileType: file.Type.CSV,
             contents: csvContent
         });

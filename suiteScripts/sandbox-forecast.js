@@ -100,6 +100,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     ];
     const orderFields = [
         {
+            id: 'custcol_agency_mf_flight_start_date',
+            label: 'Flight Start',
+            type: ui.FieldType.DATE
+        },
+        {
             id: 'custcol_agency_mf_flight_end_date',
             label: 'Flight End',
             type: ui.FieldType.DATE
@@ -108,6 +113,21 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id: 'item',
             label: 'Item',
             type: ui.FieldType.TEXT
+        },
+        {
+            id: 'custcol_agency_mf_rate_model',
+            label: 'Rate Model',
+            type: ui.FieldType.TEXT
+        },
+        {
+            id: 'quantity',
+            label: 'Quantity',
+            type: ui.FieldType.INTEGER
+        },
+        {
+            id: 'custcol_agency_mf_media_quantity_1',
+            label: 'Media Quantity',
+            type: ui.FieldType.INTEGER
         },
         { 
             id: 'amount',
@@ -167,7 +187,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         // handle new repPredictions from save event
         const repPredictions = getRepPredictions(context.request);
-        if (repPredictions !== null) updateCSV(filter, repPredictions);
 
         page.clientScriptModulePath = "./sandbox-forecast-cl.js";
         page.addButton({
@@ -184,13 +203,15 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         filterOptionsSection(page, filter);
         // run search without display limit to get calcs
         fullSearch(filter);
+        const quota = getQuotaCSVtotal(filter);
+
+        if (repPredictions !== null) updateCSV(filter, repPredictions, quota);
 
         // run searches that build sublists in display
         Object.keys(typesDictionary).forEach(key => {
             renderList(page, key, displaySearch(key, filter), filter);
         });
 
-        const quota = getQuotaCSVtotal(filter);
         const predictionValues = getPredictionCSVtotals(filter);
 
         calcSection(page, quota);
@@ -225,13 +246,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
         getProperties(propertySearchField, filter.property);
 
-        const advertiserSearchField = page.addField({
-            id: 'custpage_advertiser',
-            label: 'Primary Advertiser',
-            type: ui.FieldType.SELECT,
-            container: 'custpage_filtergroup'
-        });
-        getAdvertisers(advertiserSearchField, filter.advertiser);
+        // const advertiserSearchField = page.addField({
+        //     id: 'custpage_advertiser',
+        //     label: 'Primary Advertiser',
+        //     type: ui.FieldType.SELECT,
+        //     container: 'custpage_filtergroup'
+        // });
+        // getAdvertisers(advertiserSearchField, filter.advertiser);
 
         const startDateField = page.addField({
             id: 'custpage_startdate',
@@ -311,7 +332,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.PERCENT,
             container: 'custpage_calcsgroup'
         });
-        bookedField.defaultValue = ((calcs.salesorder/quota)*100).toFixed(2);
+        if (quota) bookedField.defaultValue = ((calcs.salesorder/quota)*100).toFixed(2);
         bookedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
     }
 
@@ -411,7 +432,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             const field = list.addField(id);
             // extras for input fields
             // entity status would go here as dropdown if needed
-            if (id.id === 'probability' || (type === 'opportunity' && id.id === 'amount')) {
+            if (id.id === 'probability' 
+                || (type === 'opportunity' && id.id === 'amount')
+                || (type === 'salesorder' && id.id === 'custcol_agency_mf_media_quantity_1')) {
                 field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY
                 });
             }
@@ -489,6 +512,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             return cols;
         };
 
+        const updatedOpps = [];
+
         const incrementCalcs = (res, type) => {
             const amount = res.getValue({name: 'amount'});
             const probability = res.getValue({name: 'probability'});
@@ -502,6 +527,21 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 if (forecast) {
                     calcs.weighted+=weightvalue;
                     calcs.gross+=grossnum;
+                } else if (type === 'opportunity' && !updatedOpps.includes(res.id)) {
+                    const recObj = record.load({
+                        type: record.Type.OPPORTUNITY,
+                        id: res.id,
+                    });
+                    const linecount = recObj.getLineCount({sublistId: 'item'});
+                    for (var line = 0 ; line < linecount; line++) {
+                        recObj.setSublistValue({
+                            sublistId: 'item',
+                            fieldId: 'custcolforecast_inclusion',
+                            line: line,
+                            value: true
+                        });
+                    }
+                    updatedOpps.push(res.id);
                 }
             } else {
                 calcs.weighted+=grossnum;
@@ -764,6 +804,18 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id: result.id,
             recordType: result.recordType
         };
+        // LOGGING SALESORDER
+        // if (result.recordType === 'salesorder') {
+        //     const salesRecord = record.load({type: record.Type.SALES_ORDER, id: result.id});
+        //     const itemList = salesRecord.getSublistFields({
+        //         sublistId: 'item'
+        //      });
+        //     log.debug({
+        //         title: 'sales order record item sublist',
+        //         details: itemList
+        //     })
+        // }
+        // END LOGGING
         fields.forEach(f => {
             if (f.type === ui.FieldType.TEXT) {
                 var text = result.getText({name: f.id})
@@ -791,11 +843,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         if (!id || id === '0') return '';
         const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
         return propertyRecord.getValue({fieldId: 'name'});
-    }
-    const getAdvertiserName = (id) => {
-        if (!id || id === '0') return '';
-        const advertiserRecord = record.load({type: record.Type.CUSTOMER, id: id});
-        return advertiserRecord.getValue({fieldId: 'altname'});
     }
 
     function getQuotaCSVtotal(filter) {
@@ -932,7 +979,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return csvObjArray;
     }
 
-    function updateCSV(filter, repPredictions) {
+    function updateCSV(filter, repPredictions, quota) {
         const { salesrep, property, startdate, fullyear } = filter;
         const { worstcase, mostlikely, upside } = repPredictions;
 
@@ -942,6 +989,10 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const year = startdate.getFullYear();
         const lastupdate = new Date();
 
+        const { weighted, gross, universal, opportunity, estimate, salesorder } = calcs;
+
+        const booked = ((calcs.salesorder/quota)*100).toFixed(2);
+
         const updatedPredictions = {
             salesrep: repName,
             property: propertyName,
@@ -949,7 +1000,15 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             worstcase: worstcase,
             mostlikely: mostlikely,
             upside: upside,
-            lastupdate: lastupdate
+            lastupdate: lastupdate,
+            weighted: weighted,
+            gross: gross,
+            universal: universal,
+            opportunity: opportunity,
+            estimate: estimate,
+            salesorder: salesorder,
+            quota: quota,
+            booked: booked
         }
 
         log.debug({
