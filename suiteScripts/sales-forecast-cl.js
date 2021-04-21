@@ -56,6 +56,15 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
                 ignoreFieldChange: true
             });
         }
+
+        if (context.fieldId === 'custcol_agency_mf_media_quantity_1') {
+            const soListId = context.sublistId;
+            const soline = context.line;
+
+            console.info('salesorder changed... ' + soListId + ' line# ' + soline);
+            editlog.push(getInternalId(soListId, soline)); // add to list of edited records for later save
+        }
+
         // Updates for weighted and forecast calcs when line items change
         if (context.fieldId === 'custcolforecast_inclusion'
             || context.fieldId === 'probability' 
@@ -202,12 +211,13 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
     function save() {
         console.info('Saving Record Changes...');
         console.info(editlog);
-        const opportunityEntries = getEntryValues('custpage_opportunity').filter(edited);
-        const proposalEntries = getEntryValues('custpage_estimate').filter(edited);
+        const opportunityEntries = getEntryValues('custpage_opportunity', record.Type.OPPORTUNITY).filter(edited);
+        const proposalEntries = getEntryValues('custpage_estimate', record.Type.ESTIMATE).filter(edited);
+        const salesorderEntries = getEntryValues('custpage_salesorder', record.Type.SALES_ORDER).filter(edited);
 
         Promise.all(proposalEntries.map(setTransactionRecordValues))
-
         Promise.all(opportunityEntries.map(setTransactionRecordValues));
+        Promise.all(salesorderEntries.map(setTransactionRecordValues));
 
         if (predictionsUpdated) {
             const worstcase = page.getValue({fieldId: 'custpage_worstcase'});
@@ -243,11 +253,8 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         return editlog.includes(entry.id);
     }
 
-    function getEntryValues(sublistId) {
+    function getEntryValues(sublistId, type) {
         entryValues = [];
-        const type = (sublistId === 'custpage_opportunity')
-            ? record.Type.OPPORTUNITY
-            : record.Type.ESTIMATE;
         const total = page.getLineCount({sublistId: sublistId});
         var lineitems = [];
         var preventry = {};
@@ -255,11 +262,13 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         for (var line = 0; line < total; line++) {
             var id = getInternalId(sublistId, line);
 
-            var probability = page.getSublistValue({
-                sublistId: sublistId,
-                fieldId: 'probability',
-                line: line
-            })
+            if (sublistId !== 'custpage_salesorder') {
+                var probability = page.getSublistValue({
+                    sublistId: sublistId,
+                    fieldId: 'probability',
+                    line: line
+                });
+            }
 
             if (previd !== id && line !== 0) {
                 entryValues.push(preventry);
@@ -267,35 +276,50 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
                 previd = id;
             }
 
-            var forecast = page.getSublistValue({
-                sublistId: sublistId,
-                fieldId: 'custcolforecast_inclusion',
-                line: line
-            })
-
             var flightend = page.getSublistValue({
                 sublistId: sublistId,
                 fieldId: 'custcol_agency_mf_flight_end_date',
                 line: line
             }).toString();
 
-            var amount = page.getSublistValue({
-                sublistId: sublistId,
-                fieldId: 'amount',
-                line: line
-            })
+            if (sublistId === 'custpage_salesorder'){
+                var mediaQuantity = page.getSublistValue({
+                    sublistId: sublistId,
+                    fieldId: 'custcol_agency_mf_media_quantity_1',
+                    line: line
+                });
+                lineitems.push({
+                    flightend: flightend,
+                    mediaQuantity: mediaQuantity
+                });
+                preventry = {
+                    id: id,
+                    type: type,
+                    lineitems: lineitems,
+                };
+            } else {
+                var forecast = page.getSublistValue({
+                    sublistId: sublistId,
+                    fieldId: 'custcolforecast_inclusion',
+                    line: line
+                });
+                var amount = page.getSublistValue({
+                    sublistId: sublistId,
+                    fieldId: 'amount',
+                    line: line
+                });
 
-            lineitems.push({
-                forecast: forecast,
-                flightend: flightend,
-                gross: amount
-            });
-
-            preventry = {
-                id: id,
-                type: type,
-                probability: probability,
-                lineitems: lineitems,
+                lineitems.push({
+                    forecast: forecast,
+                    flightend: flightend,
+                    gross: amount
+                });
+                preventry = {
+                    id: id,
+                    type: type,
+                    probability: probability,
+                    lineitems: lineitems,
+                };
             }
 
             if (line === (total-1)){
@@ -313,11 +337,13 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         });
         loaded.then(function(recObj){
             // probability set once on opportunity item
-            recObj.setValue({
-                fieldId: 'probability',
-                value: entryObj.probability,
-                ignoreFieldChange: true
-            })
+            if (entryObj.type !== record.Type.SALES_ORDER) {
+                recObj.setValue({
+                    fieldId: 'probability',
+                    value: entryObj.probability,
+                    ignoreFieldChange: true
+                });
+            }
 
             // index line number on sublist by flight end date to match with table info
             const linecount = recObj.getLineCount({sublistId: 'item'});
@@ -331,23 +357,38 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
                 dateindex[flightend] = line;
             }
 
-            // update line item amounts from gross in table
+            // update line item amounts entries in table
             entryObj.lineitems.forEach(function(itementry){
-                // set forecast include
-                recObj.setSublistValue({
-                    sublistId: 'item',
-                    fieldId: 'custcolforecast_inclusion',
-                    line: dateindex[itementry.flightend],
-                    value: itementry.forecast
-                });
-                // set amount on opportunity
-                if (entryObj.type === record.Type.OPPORTUNITY) {
+                if (entryObj.type === record.Type.SALES_ORDER) {
                     recObj.setSublistValue({
                         sublistId: 'item',
-                        fieldId: 'amount',
+                        fieldId: 'custrecord_agency_mf_delivery_date',
                         line: dateindex[itementry.flightend],
-                        value: itementry.gross
-                    });  
+                        value: itementry.flightend
+                    });
+                    recObj.setSublistValue({
+                        sublistId: 'item',
+                        fieldId: 'custcol_agency_mf_media_quantity_1',
+                        line: dateindex[itementry.flightend],
+                        value: itementry.mediaQuantity
+                    });
+                } else {
+                    // set forecast include
+                    recObj.setSublistValue({
+                        sublistId: 'item',
+                        fieldId: 'custcolforecast_inclusion',
+                        line: dateindex[itementry.flightend],
+                        value: itementry.forecast
+                    });
+                    // set amount on opportunity
+                    if (entryObj.type === record.Type.OPPORTUNITY) {
+                        recObj.setSublistValue({
+                            sublistId: 'item',
+                            fieldId: 'amount',
+                            line: dateindex[itementry.flightend],
+                            value: itementry.gross
+                        });  
+                    }
                 }
             });
             var recordId = recObj.save({ignoreMandatoryFields: true});

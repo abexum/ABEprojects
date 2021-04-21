@@ -56,6 +56,7 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
                 ignoreFieldChange: true
             });
         }
+
         if (context.fieldId === 'custcol_agency_mf_media_quantity_1') {
             const soListId = context.sublistId;
             const soline = context.line;
@@ -215,9 +216,7 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         const salesorderEntries = getEntryValues('custpage_salesorder', record.Type.SALES_ORDER).filter(edited);
 
         Promise.all(proposalEntries.map(setTransactionRecordValues))
-
         Promise.all(opportunityEntries.map(setTransactionRecordValues));
-
         Promise.all(salesorderEntries.map(setTransactionRecordValues));
 
         if (predictionsUpdated) {
@@ -361,6 +360,12 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             // update line item amounts entries in table
             entryObj.lineitems.forEach(function(itementry){
                 if (entryObj.type === record.Type.SALES_ORDER) {
+                    recObj.setSublistValue({
+                        sublistId: 'item',
+                        fieldId: 'custrecord_agency_mf_delivery_date',
+                        line: dateindex[itementry.flightend],
+                        value: itementry.flightend
+                    });
                     recObj.setSublistValue({
                         sublistId: 'item',
                         fieldId: 'custcol_agency_mf_media_quantity_1',

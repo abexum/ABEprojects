@@ -1,5 +1,5 @@
-define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidget", "N/error", "N/log"], 
-    function (s, url, task, file, format, record, ui, e, log) {
+define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidget", "N/runtime", "N/log"], 
+    function (s, url, task, file, format, record, ui, runtime, log) {
 
     /**
      * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
@@ -15,7 +15,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
      * @requires N/record
      * @requires N/format
      * @requires N/ui/serverWidget
-     * @requires N/error
+     * @requires N/runtime
      * @requires N/log
      *
      * @NApiVersion 2.1
@@ -115,6 +115,16 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.TEXT
         },
         {
+            id: 'custcol_size',
+            label: 'Size',
+            type: ui.FieldType.FLOAT
+        },
+        {
+            id: 'custcolint_note',
+            label: 'Description',
+            type: ui.FieldType.TEXT
+        },
+        {
             id: 'custcol_agency_mf_rate_model',
             label: 'Rate Model',
             type: ui.FieldType.TEXT
@@ -131,7 +141,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         },
         { 
             id: 'amount',
-            label: 'Gross',
+            label: 'Full',
             type: ui.FieldType.CURRENCY
         }
     ];
@@ -173,6 +183,44 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     const salesrepSelections = [];
     const propertySelections = [];
 
+    const fulfillmentView = () => {
+        const user = runtime.getCurrentUser();
+        // roles...
+        // controller : 1024
+        // production and order entry : 1034
+        return (user.role === 1024 || user.role === 1034);
+    };
+
+    const salesRepView = () => {
+        const user = runtime.getCurrentUser();
+        // roles...
+        // sales representative : 1028
+        // sales manager : 1027
+        return (user.role === 1027 || user.role === 1028);
+    };
+
+    const adminView = () => {
+        const user = runtime.getCurrentUser();
+        // roles...
+        // administrator : 3
+        // A/P analyst : 1019
+        // CEO : 1022
+        // CFO : 1023
+        // financial analyst : 1026
+        return (
+            user.role === 3
+            || user.role === 1019
+            || user.role === 1022
+            || user.role === 1023
+            || user.role === 1026
+        );
+    };
+
+    // other roles ACBM, LLC ...
+    // ACBM Concur : 1030
+    // circulation : 1039
+    // employee : 1025
+    
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
         log.debug({title: 'request parameters', details: context.request.parameters});
@@ -181,7 +229,16 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             title: 'Sales Forecast'
         });
 
+        // LOGGING USER
+        const user = runtime.getCurrentUser();
+        log.debug({
+            title: 'user role',
+            details: JSON.stringify(user)
+        });
+        // END LOGGING
+
         const filter = getFilter(context.request);
+
         // keep quotas up to date when tool is first opened
         if (runTheQuotaUpdateTask) refreshQuotaResults();
 
@@ -209,14 +266,16 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         // run searches that build sublists in display
         Object.keys(typesDictionary).forEach(key => {
+            if (fulfillmentView() && key !== 'salesorder') return;
             renderList(page, key, displaySearch(key, filter), filter);
         });
 
         const predictionValues = getPredictionCSVtotals(filter);
 
-        calcSection(page, quota);
-
-        predictionSection(page, filter, predictionValues);
+        if (salesRepView() || adminView()){
+            calcSection(page, quota);
+            predictionSection(page, filter, predictionValues);
+        }
 
         context.response.writePage({
             pageObject: page
@@ -432,11 +491,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             const field = list.addField(id);
             // extras for input fields
             // entity status would go here as dropdown if needed
-            if (id.id === 'probability' 
-                || (type === 'opportunity' && id.id === 'amount')
-                || (type === 'salesorder' && id.id === 'custcol_agency_mf_media_quantity_1')) {
-                field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY
-                });
+            if (id.id === 'probability' || (type === 'opportunity' && id.id === 'amount')) {
+                field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
+            } else if ((adminView() || fulfillmentView())
+                && (type === 'salesorder' && id.id === 'custcol_agency_mf_media_quantity_1')) {
+                field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
             }
         });
         if (type !== 'salesorder'){
@@ -454,14 +513,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 if (skip(key)) return;
                 let value = res[key]
                 if (value && key !== 'recordType' && key !== 'id') {
-                    if (key === 'tranid'){
+                    if (key === 'tranid') {
                         const link = url.resolveRecord({
                             isEditMode: false,
                             recordId: res.id,
                             recordType: res.recordType,
                         });
-                        value = '<a href="'+link+'" target="_blank">'+value+'</a>'
-                    } else if (type !== 'salesorder' && key === 'class') {
+                        value = '<a href="'+link+'" target="_blank">'+value+'</a>';
                     }
                     list.setSublistValue({
                         id: key,
@@ -512,8 +570,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             return cols;
         };
 
-        const updatedOpps = [];
-
         const incrementCalcs = (res, type) => {
             const amount = res.getValue({name: 'amount'});
             const probability = res.getValue({name: 'probability'});
@@ -527,21 +583,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 if (forecast) {
                     calcs.weighted+=weightvalue;
                     calcs.gross+=grossnum;
-                } else if (type === 'opportunity' && !updatedOpps.includes(res.id)) {
-                    const recObj = record.load({
-                        type: record.Type.OPPORTUNITY,
-                        id: res.id,
-                    });
-                    const linecount = recObj.getLineCount({sublistId: 'item'});
-                    for (var line = 0 ; line < linecount; line++) {
-                        recObj.setSublistValue({
-                            sublistId: 'item',
-                            fieldId: 'custcolforecast_inclusion',
-                            line: line,
-                            value: true
-                        });
-                    }
-                    updatedOpps.push(res.id);
                 }
             } else {
                 calcs.weighted+=grossnum;
@@ -804,21 +845,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id: result.id,
             recordType: result.recordType
         };
-        // LOGGING SALESORDER
-        // if (result.recordType === 'salesorder') {
-        //     const salesRecord = record.load({type: record.Type.SALES_ORDER, id: result.id});
-        //     const itemList = salesRecord.getSublistFields({
-        //         sublistId: 'item'
-        //      });
-        //     log.debug({
-        //         title: 'sales order record item sublist',
-        //         details: itemList
-        //     })
-        // }
-        // END LOGGING
         fields.forEach(f => {
             if (f.type === ui.FieldType.TEXT) {
-                var text = result.getText({name: f.id})
+                var text = result.getText({name: f.id});
                 row[f.id] = (f.id === 'custbody_advertiser1')
                     ? text.substring(text.indexOf(' ')+1)
                     : text;
@@ -873,7 +902,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     }
 
     function getPredictionCSVtotals(filter) {
-        const repFilterCSV = grabFile('repPredictions.csv');
+        const repFilterCSV = grabFile('forecastTotals.csv');
         if (!repFilterCSV) return {worstcase: '', mostlikely: '', upside: '', lastupdate: ''};
 
         const csvObjs = processCSV(repFilterCSV);
@@ -991,8 +1020,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         const { weighted, gross, universal, opportunity, estimate, salesorder } = calcs;
 
-        const booked = ((calcs.salesorder/quota)*100).toFixed(2);
-
         const updatedPredictions = {
             salesrep: repName,
             property: propertyName,
@@ -1007,8 +1034,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             opportunity: opportunity,
             estimate: estimate,
             salesorder: salesorder,
-            quota: quota,
-            booked: booked
+            quota: quota
         }
 
         log.debug({
@@ -1019,13 +1045,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         // predictions are salesrep, property and month specific for edits
         if (salesrep === '0' || property === '0' || fullyear) return;
 
-        const predictionCSV = grabFile('repPredictions.csv');
+        const predictionCSV = grabFile('forecastTotals.csv');
 
         var foundindex = -1;
         var csvObjs = [];
 
         if (predictionCSV) {
-            log.audit({title: 'repPredictions CSV successfully loaded'});
+            log.audit({title: 'forecastTotals CSV successfully loaded'});
             csvObjs = processCSV(predictionCSV);
     
             // search for index of pre-existing data
@@ -1053,7 +1079,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const csvContent = csvString(csvObjs);
 
         var newCSV = file.create({
-            name: 'repPredictions.csv',
+            name: 'forecastTotals.csv',
             fileType: file.Type.CSV,
             contents: csvContent
         });

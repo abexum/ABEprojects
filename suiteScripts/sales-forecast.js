@@ -1,5 +1,5 @@
-define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidget", "N/error", "N/log"], 
-    function (s, url, task, file, format, record, ui, e, log) {
+define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidget", "N/runtime", "N/log"], 
+    function (s, url, task, file, format, record, ui, runtime, log) {
 
     /**
      * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
@@ -15,7 +15,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
      * @requires N/record
      * @requires N/format
      * @requires N/ui/serverWidget
-     * @requires N/error
+     * @requires N/runtime
      * @requires N/log
      *
      * @NApiVersion 2.1
@@ -98,6 +98,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     ];
     const orderFields = [
         {
+            id: 'custcol_agency_mf_flight_start_date',
+            label: 'Flight Start',
+            type: ui.FieldType.DATE
+        },
+        {
             id: 'custcol_agency_mf_flight_end_date',
             label: 'Flight End',
             type: ui.FieldType.DATE
@@ -107,9 +112,34 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             label: 'Item',
             type: ui.FieldType.TEXT
         },
+        {
+            id: 'custcol_size',
+            label: 'Size',
+            type: ui.FieldType.TEXT
+        },
+        // {
+        //     id: 'description',
+        //     label: 'Description',
+        //     type: ui.FieldType.TEXT
+        // },
+        {
+            id: 'custcol_agency_mf_rate_model',
+            label: 'Rate Model',
+            type: ui.FieldType.TEXT
+        },
+        {
+            id: 'quantity',
+            label: 'Quantity',
+            type: ui.FieldType.FLOAT
+        },
+        {
+            id: 'custcol_agency_mf_media_quantity_1',
+            label: 'Media Quantity',
+            type: ui.FieldType.FLOAT
+        },
         { 
             id: 'amount',
-            label: 'Gross',
+            label: 'Full',
             type: ui.FieldType.CURRENCY
         }
     ];
@@ -149,12 +179,55 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         salesorder: 0
     };
 
+    const fulfillmentView = () => {
+        const user = runtime.getCurrentUser();
+        // roles...
+        // controller : 1024
+        // production and order entry : 1034
+        return (user.role === 1024 || user.role === 1034);
+    };
+
+    const salesRepView = () => {
+        const user = runtime.getCurrentUser();
+        // roles...
+        // sales representative : 1028
+        // sales manager : 1027
+        return (user.role === 1027 || user.role === 1028);
+    };
+
+    const adminView = () => {
+        const user = runtime.getCurrentUser();
+        // roles...
+        // administrator : 3
+        // A/P analyst : 1019
+        // CEO : 1022
+        // CFO : 1023
+        // financial analyst : 1026
+        return (
+            user.role === 3
+            || user.role === 1019
+            || user.role === 1022
+            || user.role === 1023
+            || user.role === 1026
+        );
+    };
+
+    // other roles ACBM, LLC ...
+    // ACBM Concur : 1030
+    // circulation : 1039
+    // employee : 1025
+
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
         log.debug({title: 'request parameters', details: context.request.parameters});
 
+        let displayTitle = '';
+        if (adminView()) displayTitle = 'Sales Forecast & Order Fulfillment';
+        if (fulfillmentView()) displayTitle = 'Order Fulfillment';
+        if (salesRepView()) displayTitle = 'Sales Forecast';
+
         const page = ui.createForm({
-            title: 'Sales Forecast'
+            title: displayTitle
         });
 
         const filter = getFilter(context.request);
@@ -184,15 +257,17 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         // run searches that build sublists in display
         Object.keys(typesDictionary).forEach(key => {
+            if (fulfillmentView() && key !== 'salesorder') return;
             renderList(page, key, displaySearch(key, filter), filter);
         });
 
         
         const predictionValues = getPredictionCSVtotals(filter);
 
-        calcSection(page, quota);
-
-        predictionSection(page, filter, predictionValues);
+        if (salesRepView() || adminView()){
+            calcSection(page, quota);
+            predictionSection(page, filter, predictionValues);
+        }
 
         context.response.writePage({
             pageObject: page
@@ -400,8 +475,10 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             // extras for input fields
             // entity status would go here as dropdown if needed
             if (id.id === 'probability' || (type === 'opportunity' && id.id === 'amount')) {
-                field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY
-                });
+                field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
+            } else if ((adminView() || fulfillmentView())
+                && (type === 'salesorder' && id.id === 'custcol_agency_mf_media_quantity_1')) {
+                field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
             }
         });
         if (type !== 'salesorder'){
@@ -425,8 +502,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                             recordId: res.id,
                             recordType: res.recordType,
                         });
-                        value = '<a href="'+link+'" target="_blank">'+value+'</a>'
-                    } else if (type !== 'salesorder' && key === 'class') {
+                        value = '<a href="'+link+'" target="_blank">'+value+'</a>';
                     }
                     list.setSublistValue({
                         id: key,
@@ -851,8 +927,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         const { weighted, gross, universal, opportunity, estimate, salesorder } = calcs;
 
-        const booked = ((calcs.salesorder/quota)*100).toFixed(2);
-
         const updatedPredictions = {
             salesrep: repName,
             property: propertyName,
@@ -867,8 +941,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             opportunity: opportunity,
             estimate: estimate,
             salesorder: salesorder,
-            quota: quota,
-            booked: booked
+            quota: quota
         }
 
         log.debug({
