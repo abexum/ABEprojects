@@ -357,6 +357,11 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
                 dateindex[flightend] = line;
             }
 
+            
+        // custrecord_agency_mf_line_id (MEDIA LINE ID)
+        // custcol_atlas_iolineid_txt
+        // check the items that are linked via the line items on the transaction record
+
             // update line item amounts entries in table
             entryObj.lineitems.forEach(function(itementry){
                 if (entryObj.type === record.Type.SALES_ORDER) {

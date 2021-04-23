@@ -106,6 +106,27 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         // all whole numbers in the grid, no decimals
     ];
 
+    const adminMode = () => {
+        const user = runtime.getCurrentUser();
+        // roles...
+        // administrator : 3
+        // CFO : 41
+        // A/P analyst : 1019
+        // CEO : 1020
+        // A/R analyst : 1022
+        // financial analyst : 1026
+        // CSV Integrator : 1037
+        return (
+            user.role === 3
+            || user.role === 41
+            || user.role === 1019
+            || user.role === 1020
+            || user.role === 1022
+            || user.role === 1026
+            || user.role === 1037
+        );
+    };
+
     const results = [];
     const abreviatedMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -157,7 +178,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         log.debug({title: 'request parameters', details: context.request.parameters});
 
         const filter = getFilter(context.request);
-        fullRecordedSearch(filter);
+        // fullRecordedSearch(filter);
 
         const page = ui.createForm({
             title: 'Forecast Overview'
@@ -425,16 +446,16 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         Object.keys(quotaResults.salesrep).forEach(rep => {
             let q = quotaResults.salesrep[rep];
             if (q) {
-                let so = salesorderResults[rep] || 0;
+                let so = salesorderResults.salesrep[rep] || 0;
                 bookedSalesrepResults[rep] = ((so/q)*100).toFixed(2);
             }
         });
 
         const bookedPropertyResults = {};
-        quotaResults.class.forEach(prop => {
+        Object.keys(quotaResults.class).forEach(prop => {
             let q = quotaResults.class[prop];
             if (q) {
-                let so = salesorderResults[prop] || 0;
+                let so = salesorderResults.class[prop] || 0;
                 bookedPropertyResults[prop] = ((so/q)*100).toFixed(2);
             }
         });
@@ -547,20 +568,12 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             const grossnum = parseFloat(amount);
             calcs[date][salesrep][property].universal+= grossnum;
             calcs[date][salesrep][property][type]+=grossnum;
-            log.debug({
-                title: 'grossnum',
-                details: grossnum
-            });
 
             if (type !== 'salesorder') {
                 if (forecast) {
                     const weightvalue = grossnum*(parseFloat(probability)/100);
                     calcs[date][salesrep][property].weighted+=weightvalue;
                     calcs[date][salesrep][property].gross+=grossnum;
-                    log.debug({
-                        title: 'weightvalue',
-                        details: weightvalue
-                    });
                 }
             } else {
                 calcs[date][salesrep][property].weighted+=grossnum;
@@ -663,34 +676,41 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function updateForecastTotalsCSV() {
         const totalsCSV = grabFile('forecastTotals.csv');
 
-        log.debug({
-            title: 'calcs object',
-            details: JSON.stringify(calcs)
-        });
         var csvObjs = [];
 
         if (totalsCSV) {
             log.audit({title: 'forecastTotals CSV successfully loaded'});
             csvObjs = processCSV(totalsCSV);
-    
+            const oldDataLines = [];
             // search for index of pre-existing data
-            foundindex = csvObjs.forEach(line => {
+            csvObjs.forEach((line, index) => {
                 let { salesrep, property, date } = line;
-                // update forecastTotals from calcs
-                Object.keys(calcs[date][salesrep][property]).forEach(key => {
-                    let value = calcs[date][salesrep][property][key];
-                    if (value || value === 0) line[key] = value;
-                });
-                log.debug({
-                    title: 'csv object line',
-                    details: JSON.stringify(line)
-                });
 
-                // remove calcs so they won't be duplicated
-                delete calcs[date][salesrep][property];
+                // check that date is in search period
+                if (!calcs[date]) return;
+                // replace old data with calcs
+                if (calcs[date][salesrep][property]) {
+                    Object.keys(calcs[date][salesrep][property]).forEach(key => {
+                        let value = calcs[date][salesrep][property][key];
+                        if (value || value === 0) line[key] = value;
+                    });
+                    delete calcs[date][salesrep][property];
+                } else {
+                    // remove data not found in calcs
+                    log.debug({
+                        title: 'forecastTotals.csv line will be removed',
+                        details: JSON.stringify(line)
+                    });
+                    oldDataLines.push(index);
+                }
             });
+            // remove data lines in reverse so index is always correct
+            const totalRemovals = oldDataLines.length;
+            for (let line = totalRemovals - 1; line >= 0; line--){
+                csvObjs.splice(oldDataLines[line], 1);
+            }
         }
-
+        // add new lines for new data
         Object.keys(calcs).forEach(month => {
             Object.keys(calcs[month]).forEach(rep => {
                 Object.keys(calcs[month][rep]).forEach(prop => {
@@ -716,11 +736,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             });
         });
 
-        log.debug({
-            title: 'csv objects',
-            details: csvObjs
-        });
-        
         const csvContent = csvString(csvObjs);
 
         var newCSV = file.create({

@@ -190,25 +190,30 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     const salesRepView = () => {
         const user = runtime.getCurrentUser();
         // roles...
+        // CEO : 1022
         // sales representative : 1028
         // sales manager : 1027
-        return (user.role === 1027 || user.role === 1028);
+        return ( user.role === 1022
+            || user.role === 1027 
+            || user.role === 1028);
     };
 
     const adminView = () => {
         const user = runtime.getCurrentUser();
         // roles...
         // administrator : 3
+        // CFO : 41
         // A/P analyst : 1019
-        // CEO : 1022
-        // CFO : 1023
+        // A/R analyst : 1020
         // financial analyst : 1026
+        // CSV Integrator : 1037
         return (
             user.role === 3
+            || user.role === 41
             || user.role === 1019
-            || user.role === 1022
-            || user.role === 1023
+            || user.role === 1020
             || user.role === 1026
+            || user.role === 1037
         );
     };
 
@@ -221,7 +226,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         log.audit({title: 'Loading Forecast Suitelet...'});
         log.debug({title: 'request parameters', details: context.request.parameters});
 
-        let displayTitle = '';
+        let displayTitle = 'Sales Order Search';
         if (adminView()) displayTitle = 'Sales Forecast & Order Fulfillment';
         if (fulfillmentView()) displayTitle = 'Order Fulfillment';
         if (salesRepView()) displayTitle = 'Sales Forecast';
@@ -261,7 +266,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             renderList(page, key, displaySearch(key, filter), filter);
         });
 
-        
         const predictionValues = getPredictionCSVtotals(filter);
 
         if (salesRepView() || adminView()){
@@ -818,7 +822,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const worstcase = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.worstcase), 0);
         const mostlikely = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.mostlikely), 0);
         const upside = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.upside), 0);
-        const lastupdate = new Date(Math.max(...filteredLines.map(entry => new Date(entry.lastupdate))));
+        const datesArray = filteredLines.map(entry => {
+                return (entry.lastupdate) ? new Date(entry.lastupdate) : null;
+            }).filter(date => date !== null);
+        const lastupdate = new Date(Math.max(...datesArray));
+
         return {
             worstcase: worstcase,
             mostlikely: mostlikely,

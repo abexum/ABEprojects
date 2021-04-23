@@ -42,8 +42,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
      * @function onRequest
      */
 
-
-
     const commonFields = type => [
         { 
             id: 'salesrep',
@@ -117,13 +115,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         {
             id: 'custcol_size',
             label: 'Size',
-            type: ui.FieldType.FLOAT
-        },
-        {
-            id: 'custcolint_note',
-            label: 'Description',
             type: ui.FieldType.TEXT
         },
+        // {
+        //     id: 'description',
+        //     label: 'Description',
+        //     type: ui.FieldType.TEXT
+        // },
         {
             id: 'custcol_agency_mf_rate_model',
             label: 'Rate Model',
@@ -132,12 +130,12 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         {
             id: 'quantity',
             label: 'Quantity',
-            type: ui.FieldType.INTEGER
+            type: ui.FieldType.FLOAT
         },
         {
             id: 'custcol_agency_mf_media_quantity_1',
             label: 'Media Quantity',
-            type: ui.FieldType.INTEGER
+            type: ui.FieldType.FLOAT
         },
         { 
             id: 'amount',
@@ -180,8 +178,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         estimate: 0, 
         salesorder: 0
     };
-    const salesrepSelections = [];
-    const propertySelections = [];
 
     const fulfillmentView = () => {
         const user = runtime.getCurrentUser();
@@ -194,25 +190,30 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     const salesRepView = () => {
         const user = runtime.getCurrentUser();
         // roles...
+        // CEO : 1022
         // sales representative : 1028
         // sales manager : 1027
-        return (user.role === 1027 || user.role === 1028);
+        return ( user.role === 1022
+            || user.role === 1027 
+            || user.role === 1028);
     };
 
     const adminView = () => {
         const user = runtime.getCurrentUser();
         // roles...
         // administrator : 3
+        // CFO : 41
         // A/P analyst : 1019
-        // CEO : 1022
-        // CFO : 1023
+        // A/R analyst : 1020
         // financial analyst : 1026
+        // CSV Integrator : 1037
         return (
             user.role === 3
+            || user.role === 41
             || user.role === 1019
-            || user.role === 1022
-            || user.role === 1023
+            || user.role === 1020
             || user.role === 1026
+            || user.role === 1037
         );
     };
 
@@ -220,25 +221,21 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     // ACBM Concur : 1030
     // circulation : 1039
     // employee : 1025
-    
+
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
         log.debug({title: 'request parameters', details: context.request.parameters});
 
-        const page = ui.createForm({
-            title: 'Sales Forecast'
-        });
+        let displayTitle = 'Sales Order Search';
+        if (adminView()) displayTitle = 'Sales Forecast & Order Fulfillment';
+        if (fulfillmentView()) displayTitle = 'Order Fulfillment';
+        if (salesRepView()) displayTitle = 'Sales Forecast';
 
-        // LOGGING USER
-        const user = runtime.getCurrentUser();
-        log.debug({
-            title: 'user role',
-            details: JSON.stringify(user)
+        const page = ui.createForm({
+            title: displayTitle
         });
-        // END LOGGING
 
         const filter = getFilter(context.request);
-
         // keep quotas up to date when tool is first opened
         if (runTheQuotaUpdateTask) refreshQuotaResults();
 
@@ -261,7 +258,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         // run search without display limit to get calcs
         fullSearch(filter);
         const quota = getQuotaCSVtotal(filter);
-
         if (repPredictions !== null) updateCSV(filter, repPredictions, quota);
 
         // run searches that build sublists in display
@@ -304,14 +300,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             container: 'custpage_filtergroup'
         });
         getProperties(propertySearchField, filter.property);
-
-        // const advertiserSearchField = page.addField({
-        //     id: 'custpage_advertiser',
-        //     label: 'Primary Advertiser',
-        //     type: ui.FieldType.SELECT,
-        //     container: 'custpage_filtergroup'
-        // });
-        // getAdvertisers(advertiserSearchField, filter.advertiser);
 
         const startDateField = page.addField({
             id: 'custpage_startdate',
@@ -438,13 +426,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             worstField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
             likelyField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
             upsideField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
-        }else if (!predictionValues.worstcase) {
+        } else if (!predictionValues.worstcase) {
             worstField.defaultValue = calcs.salesorder.toFixed(2);
         }
     }
 
     function getFilter(request) {
-        const { salesrep, property, advertiser, startdate, enddate, fullyear } = request.parameters;
+        const { salesrep, property, startdate, enddate, fullyear } = request.parameters;
 
         // tool is first opened, kickoff the quota update task in preparation for a search
         if (!(salesrep || property || startdate || enddate || fullyear)) runTheQuotaUpdateTask = true;
@@ -456,7 +444,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return {
             salesrep: salesrep,
             property: property,
-            advertiser: advertiser,
             startdate: startValue,
             enddate: endValue,
             fullyear: fy
@@ -513,7 +500,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 if (skip(key)) return;
                 let value = res[key]
                 if (value && key !== 'recordType' && key !== 'id') {
-                    if (key === 'tranid') {
+                    if (key === 'tranid'){
                         const link = url.resolveRecord({
                             isEditMode: false,
                             recordId: res.id,
@@ -716,7 +703,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             filters: ['subsidiary', s.Operator.ANYOF, ['2']]
         }).run().each(res => {
             if (res.getValue({name: 'issalesrep'})){
-                salesrepSelections.push(res.id.toString());
                 field.addSelectOption({
                     value: res.id,
                     text: res.getValue({name: 'entityid'}),
@@ -742,86 +728,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 ['isinactive', s.Operator.IS, ['F']]
             ]
         }).run().each(res => {
-            propertySelections.push(res.id.toString());
             field.addSelectOption({
                 value: res.id,
                 text: res.getValue({name: 'name'}),
                 isSelected: (res.id === selected)
             });
-            return true;
-        });
-    }
-
-    function getAdvertisers(field, selected) {
-        field.addSelectOption({
-            value: 0,
-            text: '-- All --',
-            isSelected: false
-        });
-        let adFilter = [];
-        const subsFilter = s.createFilter({
-            name: 'subsidiary',
-            operator: s.Operator.ANYOF,
-            values: '2'
-        });
-        adFilter.push(subsFilter);
-        const activeFilter = s.createFilter({
-            name: 'isinactive',
-            operator: s.Operator.IS,
-            values: 'F'
-        });
-        adFilter.push(activeFilter);
-        const nameFilter = s.createFilter({
-            name: 'altname',
-            operator: s.Operator.ISNOTEMPTY
-        });
-        adFilter.push(nameFilter);
-
-        const repFilter = s.createFilter({
-            name: 'salesrep',
-            operator: s.Operator.ANYOF,
-            values: salesrepSelections
-        });
-        adFilter.push(repFilter);
-
-        // const propFilter = s.createFilter({
-        //     name: 'property',
-        //     operator: s.Operator.ANYOF,
-        //     values: propertySelections
-        // });
-        // adFilter.push(propFilter);
-
-
-        const statusFilter = s.createFilter({
-            name: 'entitystatus',
-            operator: s.Operator.ANYOF,
-            values:'13'
-        });
-        adFilter.push(statusFilter);
-        const searchResults= [];
-        s.create({
-            type: s.Type.CUSTOMER,
-            columns: ['altname'],
-            filters: adFilter
-        }).run().each(res => {
-            // const advertiserRecord = record.load({type: record.Type.CUSTOMER, id: res.id});
-            // log.debug({
-            //     title: 'advertiser record',
-            //     details: JSON.stringify(advertiserRecord)
-            // })
-            field.addSelectOption({
-                value: res.id,
-                text: res.getValue({name: 'altname'}),
-                isSelected: (res.id === selected)
-            });
-            searchResults.push(res.id);
-            if (searchResults.length === 300) {
-            log.debug({
-                title: 'advertiser records',
-                details: searchResults
-            })
-                return false;
-            }
             return true;
         });
     }
@@ -847,7 +758,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         };
         fields.forEach(f => {
             if (f.type === ui.FieldType.TEXT) {
-                var text = result.getText({name: f.id});
+                var text = result.getText({name: f.id})
                 row[f.id] = (f.id === 'custbody_advertiser1')
                     ? text.substring(text.indexOf(' ')+1)
                     : text;
@@ -911,7 +822,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const worstcase = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.worstcase), 0);
         const mostlikely = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.mostlikely), 0);
         const upside = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.upside), 0);
-        const lastupdate = new Date(Math.max(...filteredLines.map(entry => new Date(entry.lastupdate))));
+        const datesArray = filteredLines.map(entry => {
+                return (entry.lastupdate) ? new Date(entry.lastupdate) : null;
+            }).filter(date => date !== null);
+        const lastupdate = new Date(Math.max(...datesArray));
+
         return {
             worstcase: worstcase,
             mostlikely: mostlikely,

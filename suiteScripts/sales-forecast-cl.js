@@ -360,6 +360,7 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             // update line item amounts entries in table
             entryObj.lineitems.forEach(function(itementry){
                 if (entryObj.type === record.Type.SALES_ORDER) {
+                    
                     recObj.setSublistValue({
                         sublistId: 'item',
                         fieldId: 'custrecord_agency_mf_delivery_date',

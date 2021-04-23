@@ -2,7 +2,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function (s, url, task, file, format, record, ui, e, log) {
 
     /**
-     * Forecast Overview Suitelet: Month summary data from sales forecast
+     * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
      *
      * @exports forecast-overview
      *
@@ -106,23 +106,56 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         // all whole numbers in the grid, no decimals
     ];
 
+    const adminMode = () => {
+        const user = runtime.getCurrentUser();
+        // roles...
+        // administrator : 3
+        // CFO : 41
+        // A/P analyst : 1019
+        // CEO : 1020
+        // A/R analyst : 1022
+        // financial analyst : 1026
+        // CSV Integrator : 1037
+        return (
+            user.role === 3
+            || user.role === 41
+            || user.role === 1019
+            || user.role === 1020
+            || user.role === 1022
+            || user.role === 1026
+            || user.role === 1037
+        );
+    };
+
     const results = [];
     const abreviatedMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-    const dateFields = (filter) => {
-        const fieldObjs = [];
-        const calcsCSV = grabFile('forecastTotals.csv');
+    const dateIndex = (filter) => {
+        const twelveMonths = [];
         for (let i = 0; i < 12; i++) {
             let colDate = new Date(filter.startdate.getFullYear(), filter.startdate.getMonth() + i, 1);
             monthIndex = colDate.getMonth();
             year = colDate.getFullYear();
+            twelveMonths.push({
+                month: monthIndex,
+                year: year
+            });
+        }
+        return twelveMonths;
+    };
+
+    const dateFields = (filter) => {
+        const fieldObjs = [];
+        const calcsCSV = grabFile('forecastTotals.csv');
+        dateIndex(filter).forEach(dateObj => {
+            let { month, year } = dateObj;
             fieldObjs.push({ 
-                id: monthIndex + '_' + year,
-                label: abreviatedMonths[monthIndex] + ' ' + year.toString().slice(-2),
+                id: month + '_' + year,
+                label: abreviatedMonths[month] + ' ' + year.toString().slice(-2),
                 type: ui.FieldType.TEXT
             });
-            if (calcsCSV) results.push(getResults(calcsCSV, monthIndex, year, filter));
-        }
+            if (calcsCSV) results.push(getResults(calcsCSV, month, year, filter));
+        });
         return fieldObjs;
     };
 
@@ -144,11 +177,12 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         log.audit({title: 'Loading Forecast Suitelet...'});
         log.debug({title: 'request parameters', details: context.request.parameters});
 
+        const filter = getFilter(context.request);
+        // fullRecordedSearch(filter);
+
         const page = ui.createForm({
             title: 'Forecast Overview'
         });
-
-        const filter = getFilter(context.request);
 
         page.clientScriptModulePath = "./forecast-overview-cl.js";
         page.addButton({
@@ -259,10 +293,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             let total = 0;
 
             monthResults = results[index];
-            log.debug({
-                title: 'monthResults',
-                details: JSON.stringify(monthResults)
-            })
             groupType[type].values.forEach(value => {
                 let display = monthResults[type][value.id];
 
@@ -369,6 +399,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function getResults(calcsCSV, month, year, filter) {
         const { displayvalue, property, salesrep } = filter;
 
+        // grab Orders and Quota, total and divide them.
+        if (displayvalue === 'booked') return getBookedResult(calcsCSV, month, year, filter);
+
         const lessInfo = (moreInfo) => {
             const {salesrep, property, date } = moreInfo;
 
@@ -400,6 +433,39 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         };
     }
 
+    function getBookedResult(calcsCSV, month, year, filter) {
+        filter.displayvalue = 'salesorder';
+        const salesorderResults = getResults(calcsCSV, month, year, filter);
+
+        filter.displayvalue = 'quota';
+        const quotaResults = getResults(calcsCSV, month, year, filter);
+
+        filter.displayvalue = 'booked';
+
+        const bookedSalesrepResults = {};
+        Object.keys(quotaResults.salesrep).forEach(rep => {
+            let q = quotaResults.salesrep[rep];
+            if (q) {
+                let so = salesorderResults.salesrep[rep] || 0;
+                bookedSalesrepResults[rep] = ((so/q)*100).toFixed(2);
+            }
+        });
+
+        const bookedPropertyResults = {};
+        Object.keys(quotaResults.class).forEach(prop => {
+            let q = quotaResults.class[prop];
+            if (q) {
+                let so = salesorderResults.class[prop] || 0;
+                bookedPropertyResults[prop] = ((so/q)*100).toFixed(2);
+            }
+        });
+
+        return {
+            salesrep: bookedSalesrepResults,
+            class: bookedPropertyResults
+        };
+    }
+
     function getSalesrepResults(csvObjs, displayvalue, property) {
         let propertyName = '';
         if (property && property !== '0') {
@@ -412,18 +478,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 let repId = repNameIndex[line.salesrep];
                 let monthTotal = parseInt(line[displayvalue]);
                 if (monthTotal === 0 || monthTotal) {
-                    log.debug({
-                        title: 'displayvalue',
-                        details: displayvalue
-                    });
-                    log.debug({
-                        title: 'line',
-                        details: JSON.stringify(line)
-                    });
-                    log.debug({
-                        title: 'monthTotal',
-                        details: monthTotal
-                    });
                     if (!entries[repId]) entries[repId] = 0;
                     entries[repId] += monthTotal;
                 }
@@ -444,18 +498,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 let propertyId = propertyNameIndex[line.property];
                 let monthTotal = parseInt(line[displayvalue]);
                 if (monthTotal === 0 || monthTotal) {
-                    log.debug({
-                        title: 'displayvalue',
-                        details: displayvalue
-                    });
-                    log.debug({
-                        title: 'line',
-                        details: JSON.stringify(line)
-                    });
-                    log.debug({
-                        title: 'monthTotal',
-                        details: monthTotal
-                    });
                     if (!entries[propertyId]) entries[propertyId] = 0;
                     entries[propertyId] += monthTotal;
                 }
@@ -463,6 +505,272 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
         return entries;
     }
+
+    // BEGIN BACKFILL
+
+    const commonFields = ['salesrep', 'class', 'amount'];
+    const nonOrderFields = ['custcolforecast_inclusion', 'probability'];
+
+    const typesDictionary = {
+        opportunity: {
+            id: 'tranid',
+            label: 'Opportunities',
+            fields: commonFields.concat(nonOrderFields),
+            searchFilter: ['Opprtnty']
+        },
+        estimate: {
+            id: 'tranid',
+            label: 'Proposals',
+            fields: commonFields.concat(nonOrderFields),
+            searchFilter: ['Estimate']
+        },
+        salesorder: {
+            id: 'tranid',
+            label: 'Orders',
+            fields: commonFields,
+            searchFilter: ['SalesOrd']
+        },
+    };
+
+    const calcs = {};
+    const defineCalc = (date, salesrep, property) => {
+        if (!salesrep || !property) return 0;
+        if (calcs[date] === undefined) calcs[date] = {};
+        if (calcs[date][salesrep] === undefined) calcs[date][salesrep] = {};
+        if (calcs[date][salesrep][property] === undefined) calcs[date][salesrep][property] = {};
+
+        const { opportunity, estimate, salesorder, weighted, gross, universal, quota } = calcs[date][salesrep][property];
+        if (!opportunity) calcs[date][salesrep][property].opportunity = 0;
+        if (!estimate) calcs[date][salesrep][property].estimate = 0;
+        if (!salesorder) calcs[date][salesrep][property].salesorder = 0;
+        if (!weighted) calcs[date][salesrep][property].weighted = 0;
+        if (!gross) calcs[date][salesrep][property].gross = 0;
+        if (!universal) calcs[date][salesrep][property].universal = 0;
+        if (!quota) calcs[date][salesrep][property].quota = '';
+
+        return 1;
+    }
+
+    function fullRecordedSearch(filter) {
+        // get quota from quotaCSV
+        getQuotas();
+        
+        // calculate these values for each rep, prop, month while searching records
+        // opportunity, estimate, salesorder, weighted, gross, universal
+        const incrementCalcs = (res, type, date) => {
+            const salesrep = res.getText({name: 'salesrep'});
+            const property = res.getText({name: 'class'});
+            if (!defineCalc(date, salesrep, property)) return;
+            const amount = res.getValue({name: 'amount'});
+            const probability = res.getValue({name: 'probability'});
+            const forecast = res.getValue({name: 'custcolforecast_inclusion'});
+
+            const grossnum = parseFloat(amount);
+            calcs[date][salesrep][property].universal+= grossnum;
+            calcs[date][salesrep][property][type]+=grossnum;
+
+            if (type !== 'salesorder') {
+                if (forecast) {
+                    const weightvalue = grossnum*(parseFloat(probability)/100);
+                    calcs[date][salesrep][property].weighted+=weightvalue;
+                    calcs[date][salesrep][property].gross+=grossnum;
+                }
+            } else {
+                calcs[date][salesrep][property].weighted+=grossnum;
+                calcs[date][salesrep][property].gross+=grossnum;
+            }
+        };
+
+        dateIndex(filter).forEach(dateObj => {
+            let { month, year } = dateObj;
+            let dateStr = (month + 1)+'/1/'+year;
+            let filters = {};
+            Object.keys(typesDictionary).forEach(type => {
+                filters[type] = searchFilter(type, month, year);
+            });
+            Object.keys(typesDictionary).forEach(type => {
+                s.create({
+                    type: s.Type.TRANSACTION,
+                    filters: filters[type],
+                    columns: typesDictionary[type].fields
+                }).run().each(res => {
+                    incrementCalcs(res, type, dateStr);
+                    return true;
+                });
+            });  
+        });
+
+        // update forecastTotalsCSV without changing any of worstcase, mostlikely, upside, lastupdate
+        updateForecastTotalsCSV();
+    }
+
+    function getQuotas() {
+        const quotaCSV = grabFile('quotaResults.csv');
+        if (!quotaCSV) return;
+        log.audit({title: 'quotaResults CSV successfully loaded'});
+
+        processCSV(quotaCSV).forEach(quotaline => {
+            let { date, salesrep, property, amountmonthly } = quotaline;
+            if (!defineCalc(date, salesrep, property)) return;
+            calcs[date][salesrep][property].quota = amountmonthly;
+        });
+    }
+
+    function searchFilter(transactionType, month, year) {
+        let searchFilter = [];
+
+        const subsFilter = s.createFilter({
+            name: 'subsidiary',
+            operator: s.Operator.ANYOF,
+            values: '2'
+        });
+        searchFilter.push(subsFilter);
+        if (transactionType) {
+            const typeFilter = s.createFilter({
+                name: 'type',
+                operator: s.Operator.ANYOF,
+                values: typesDictionary[transactionType].searchFilter
+            });
+            searchFilter.push(typeFilter);
+        }
+
+        if (transactionType === 'opportunity') {
+            const discussionFilter = s.createFilter({
+                name: 'entitystatus',
+                operator: s.Operator.ANYOF,
+                values: '8',
+            });
+            searchFilter.push(discussionFilter);
+        }
+
+        if (transactionType === 'estimate') {
+            const statusFilter = s.createFilter({
+                name: 'formulatext',
+                operator: s.Operator.IS,
+                values: 'open',
+                formula: '{status}'
+            });
+            searchFilter.push(statusFilter);
+        }
+
+        const startdate = new Date(year, month, 1);
+        const enddate = new Date(year, month + 1, 0);
+
+        const startval = format.format({value: startdate, type: format.Type.DATE});
+        const endval = format.format({value: enddate, type: format.Type.DATE});
+        const startFilter = s.createFilter({
+            name: 'custcol_agency_mf_flight_end_date',
+            operator: s.Operator.ONORAFTER,
+            values: startval
+        });
+        const endFilter = s.createFilter({
+            name: 'custcol_agency_mf_flight_end_date',
+            operator: s.Operator.ONORBEFORE,
+            values: endval
+        });
+        searchFilter.push(startFilter, endFilter);
+
+        return searchFilter;
+    }
+
+    function updateForecastTotalsCSV() {
+        const totalsCSV = grabFile('forecastTotals.csv');
+
+        var csvObjs = [];
+
+        if (totalsCSV) {
+            log.audit({title: 'forecastTotals CSV successfully loaded'});
+            csvObjs = processCSV(totalsCSV);
+            const oldDataLines = [];
+            // search for index of pre-existing data
+            csvObjs.forEach((line, index) => {
+                let { salesrep, property, date } = line;
+
+                // check that date is in search period
+                if (!calcs[date]) return;
+                // replace old data with calcs
+                if (calcs[date][salesrep][property]) {
+                    Object.keys(calcs[date][salesrep][property]).forEach(key => {
+                        let value = calcs[date][salesrep][property][key];
+                        if (value || value === 0) line[key] = value;
+                    });
+                    delete calcs[date][salesrep][property];
+                } else {
+                    // remove data not found in calcs
+                    log.debug({
+                        title: 'forecastTotals.csv line will be removed',
+                        details: JSON.stringify(line)
+                    });
+                    oldDataLines.push(index);
+                }
+            });
+            // remove data lines in reverse so index is always correct
+            const totalRemovals = oldDataLines.length;
+            for (let line = totalRemovals - 1; line >= 0; line--){
+                csvObjs.splice(oldDataLines[line], 1);
+            }
+        }
+        // add new lines for new data
+        Object.keys(calcs).forEach(month => {
+            Object.keys(calcs[month]).forEach(rep => {
+                Object.keys(calcs[month][rep]).forEach(prop => {
+                    const { weighted, gross, universal, opportunity, estimate, salesorder, quota } 
+                        = calcs[month][rep][prop];
+                    csvObjs.push({
+                        salesrep: rep,
+                        property: prop,
+                        date: month,
+                        worstcase: '',
+                        mostlikely: '',
+                        upside: '',
+                        lastupdate: '',
+                        weighted: weighted,
+                        gross: gross,
+                        universal: universal,
+                        opportunity: opportunity,
+                        estimate: estimate,
+                        salesorder: salesorder,
+                        quota: quota
+                    });
+                });
+            });
+        });
+
+        const csvContent = csvString(csvObjs);
+
+        var newCSV = file.create({
+            name: 'forecastTotals.csv',
+            fileType: file.Type.CSV,
+            contents: csvContent
+        });
+        // file id is hard coded here (prod environment)
+        newCSV.encoding = file.Encoding.UTF_8;
+        newCSV.folder = 4579;
+        
+        const fileId = newCSV.save();
+        log.audit({title: 'saving forecastTotals CSV with file id: ' + fileId});
+    }
+
+    function csvString(cvsObjs) {
+        var csvArray = [];
+        var keys = [];
+        Object.keys(cvsObjs[0]).forEach(key => {
+            keys.push(key);
+        });
+        csvArray.push(keys.join(','));
+        cvsObjs.forEach(obj => {
+            var values = [];
+            Object.keys(obj).forEach(key => {
+                var value = (obj[key].toString().includes(','))
+                    ? ('\"' + obj[key] + '\"')
+                    : obj[key];
+                values.push(value);
+            });
+            csvArray.push(values.join(','));
+        });
+        return csvArray.join('\n');
+    }
+    // END BACKFILL
 
     function defaultStart(start) {
         const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
