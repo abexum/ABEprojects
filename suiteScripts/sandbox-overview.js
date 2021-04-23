@@ -308,7 +308,23 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             });
         }
 
-        const formatValue = value => format.format({value: value, type: format.Type.CURRENCY}).slice(0,-3);
+        const formatValue = (value, isTotal) => {
+            if (filter.displayvalue !== 'booked') {
+                const money = format.format({value: value, type: format.Type.CURRENCY}).slice(0,-3);
+                return (isTotal) ? '<b style="font-size:110%;">'+money+'</b>' : money;
+            }
+            const percent = format.parse({value: value, type: format.Type.FLOAT}).toFixed();
+            
+            let color = ''
+            if (percent < 51) {
+                color = '#cc0000';
+            } else if (percent < 96) {
+                color = '#ffaa00' // '#ff8c1a'
+            } else {
+                color = '#2eb82e';
+            }
+            return '<b style="font-size:110%;color:'+color+';">'+percent+'</b>'
+        };
 
         const setValues = params => {
             const { fieldId, index } = params;
@@ -338,7 +354,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
                 list.setSublistValue({
                     id: month.id,
                     line: lastRow,
-                    value: formatValue(monthTotal)
+                    value: formatValue(monthTotal, 1)
                 });
             }
         })

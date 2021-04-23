@@ -90,7 +90,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             label: 'Probability',
             type: ui.FieldType.PERCENT
         },
-        { 
+        {
             id: 'amount',
             label: 'Gross',
             type: ui.FieldType.CURRENCY
