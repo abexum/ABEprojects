@@ -63,6 +63,11 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             label: type+' #',
             type: ui.FieldType.TEXTAREA
         },
+        {
+            id: 'line',
+            label: 'line #',
+            type: ui.FieldType.INTEGER
+        },
         { 
             id: 'trandate',
             label: 'Transaction Date',
@@ -117,11 +122,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             label: 'Size',
             type: ui.FieldType.TEXT
         },
-        // {
-        //     id: 'description',
-        //     label: 'Description',
-        //     type: ui.FieldType.TEXT
-        // },
         {
             id: 'custcol_agency_mf_rate_model',
             label: 'Rate Model',
@@ -480,6 +480,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             // entity status would go here as dropdown if needed
             if (id.id === 'probability' || (type === 'opportunity' && id.id === 'amount')) {
                 field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
+            } else if (id.id === 'line') {
+                field.updateDisplayType({displayType : ui.FieldDisplayType.HIDDEN});
             } else if ((adminView() || fulfillmentView())
                 && (type === 'salesorder' && id.id === 'custcol_agency_mf_media_quantity_1')) {
                 field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
@@ -700,7 +702,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         s.create({
             type: s.Type.EMPLOYEE,
             columns: ['entityid', 'issalesrep'],
-            filters: ['subsidiary', s.Operator.ANYOF, ['2']]
+            filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
+                ['isinactive', s.Operator.IS, ['F']]
+            ]
         }).run().each(res => {
             if (res.getValue({name: 'issalesrep'})){
                 field.addSelectOption({

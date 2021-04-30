@@ -130,6 +130,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
 
     const results = [];
     const abreviatedMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const totalsCol = [];
 
     const dateIndex = (filter) => {
         const twelveMonths = [];
@@ -296,9 +297,11 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
 
         groupType[type].values.forEach(value => {
             list.setSublistValue(value.sublistEntry);
+            totalsCol.push('');
         });
 
         const lastRow = groupType[type].values.length;
+        totalsCol.push('');
         // add total row
         if (filter.displayvalue !== 'booked') {
             list.setSublistValue({
@@ -333,15 +336,18 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             monthResults = results[index];
             groupType[type].values.forEach(value => {
                 let display = monthResults[type]?.[value.id];
+                let thisline = value.sublistEntry.line;
 
                 // skip setting values where no total is recorded in results
                 if (display === 0 || display) {
                     list.setSublistValue({
                         id: fieldId,
-                        line: value.sublistEntry.line,
+                        line: thisline,
                         value: formatValue(display)
                     });
                     total += display;
+                    if (!totalsCol[thisline]) totalsCol[thisline] = 0;
+                    totalsCol[thisline] += display;
                 }
             });
             return total;
@@ -349,6 +355,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
 
         dateFields(filter).forEach((month, index) => {
             list.addField(month);
+
             const monthTotal = setValues({fieldId: month.id, index: index});
             if (filter.displayvalue !== 'booked') {
                 list.setSublistValue({
@@ -356,8 +363,22 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
                     line: lastRow,
                     value: formatValue(monthTotal, 1)
                 });
+                if (!totalsCol[lastRow]) totalsCol[lastRow] = 0;
+                totalsCol[lastRow] += monthTotal;
             }
-        })
+        });
+        list.addField({
+            id: 'custpage_totals',
+            label: 'Total',
+            type: ui.FieldType.TEXT,
+        });
+        totalsCol.forEach((total, index) => {
+            list.setSublistValue({
+                id: 'custpage_totals',
+                line: index,
+                value: formatValue(total, 1)
+            });
+        });
 
         return list;
     }

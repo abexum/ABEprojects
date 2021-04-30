@@ -20,9 +20,75 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
 
     function pageInit() {
         window.onbeforeunload = null;
+        const lines = page.getLineCount({sublistId: 'custpage_salesorder'});
+        for (var i = 0; i < lines; i++) {
+            var quantity = page.getSublistValue({
+                sublistId: 'custpage_salesorder',
+                fieldId: 'custcol_agency_mf_media_quantity_1',
+                line: i
+            });
+            if (quantity) {
+                var field = page.getSublistField({
+                    sublistId: 'custpage_salesorder',
+                    fieldId: 'custcol_agency_mf_media_quantity_1',
+                    line: i
+                });
+                 if (field) field.isDisabled = true;
+            }
+        }
     }
 
+    // editlog structure
+    // [{ 
+    //     'id': transaction internal id, 
+    //     'type': recType, 
+    //     'lines': [{
+    //         'index': index,
+    //         'fieldId': value
+    //          ...
+    //     }],[{...}]
+    // }],
+    // [{...}]
+
     var editlog = [];
+    var disableOnSave = [];
+    function addToEditLog(sublistId, line, fieldId) {
+        const id = getInternalId(sublistId, line);
+        const index = page.getSublistValue({
+            sublistId: sublistId,
+            fieldId: 'line',
+            line: line
+        }) - 1;
+        const value = page.getSublistValue({
+            sublistId: sublistId,
+            fieldId: fieldId,
+            line: line
+        });
+        const recordIndex = editlog.findIndex(function(entry) {
+            return (entry.id === id);
+        });
+        if (recordIndex === -1) { // make new record entry
+            const newEntry = {id: id, type: sublistIdType(sublistId), lines: [{index: index}]};
+            newEntry.lines[0][fieldId] = value;
+            editlog.push(newEntry);
+        } else { // add to existing record log
+            const lineIndex = editlog[recordIndex].lines.findIndex(function(l) {
+                return (l.index === index);
+            });
+            if (lineIndex === -1) { // make new line entry
+                const newLine = {index: index};
+                newLine[fieldId] = value;
+                editlog[recordIndex].lines.push(newLine);
+            } else { // add to existing line item fields
+                editlog[recordIndex].lines[lineIndex][fieldId] = value;
+            }
+        }
+    }
+    function sublistIdType(sublistId) {
+        if (sublistId === 'custpage_opportunity') return record.Type.OPPORTUNITY;
+        if (sublistId === 'custpage_estimate') return record.Type.ESTIMATE;
+        if (sublistId === 'custpage_salesorder') return record.Type.SALES_ORDER;
+    }
 
     var predictionsUpdated = false;
 
@@ -62,7 +128,45 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             const soline = context.line;
 
             console.info('salesorder changed... ' + soListId + ' line# ' + soline);
-            editlog.push(getInternalId(soListId, soline)); // add to list of edited records for later save
+            const value = page.getSublistValue({
+                sublistId: soListId,
+                fieldId: 'custcol_agency_mf_media_quantity_1',
+                line: soline
+            });
+            const thisId = getInternalId(soListId, soline);
+            // add to list of edited records for later save if nonzero value entered, otherwise ignore
+            if (typeof value === 'number' && value > 0) {
+                addToEditLog(soListId, soline, 'custcol_agency_mf_media_quantity_1');
+                disableOnSave.push({
+                    sublistId: soListId,
+                    fieldId: 'custcol_agency_mf_media_quantity_1',
+                    line: soline
+                });
+            } else {
+                // don't disable if user made it a positive value, then changed to non positive value
+                var removeIndex = disableOnSave.findIndex(function(field) {
+                    return (field.sublistId === soListId
+                        && field.fieldId === 'custcol_agency_mf_media_quantity_1'
+                        && field.line === soline
+                    );
+                });
+                if (removeIndex !== -1) disableOnSave.splice(removeIndex,1);
+                // never let an update happen if not needed here
+                const thisIndex = page.getSublistValue({
+                    sublistId: soListId,
+                    fieldId: 'line',
+                    line: soline
+                }) - 1;
+                var editRecIndex = editlog.findIndex(function(entry) {
+                    return entry.id === thisId;
+                });
+                if (editRecIndex !== -1) {
+                    var editLineIndex = editlog[editRecIndex].lines.findIndex(function(l) {
+                        return l.index === thisIndex;
+                    });
+                    if (editLineIndex !== -1) editlog[editRecIndex].lines.splice(editLineIndex,1);
+                }
+            }
         }
 
         // Updates for weighted and forecast calcs when line items change
@@ -74,7 +178,7 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             const line = context.line;
 
             console.info('forecast changed... ' + sublistId + ' line# ' + line);
-            editlog.push(getInternalId(sublistId, line)) // add to list of edited records for later save
+            addToEditLog(sublistId, line, context.fieldId); // add to list of edited records for later save
 
             var weighted = page.getSublistValue({
                 sublistId: sublistId,
@@ -208,16 +312,17 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         window.location.replace(filteredURL);
     }
 
+    var recordEdits = {};
+
     function save() {
         console.info('Saving Record Changes...');
         console.info(editlog);
-        const opportunityEntries = getEntryValues('custpage_opportunity', record.Type.OPPORTUNITY).filter(edited);
-        const proposalEntries = getEntryValues('custpage_estimate', record.Type.ESTIMATE).filter(edited);
-        const salesorderEntries = getEntryValues('custpage_salesorder', record.Type.SALES_ORDER).filter(edited);
+        disableOnSave.forEach(function(field) {
+            var fieldobj = page.getSublistField(field);
+            fieldobj.isDisabled = true;
+        });
 
-        Promise.all(proposalEntries.map(setTransactionRecordValues))
-        Promise.all(opportunityEntries.map(setTransactionRecordValues));
-        Promise.all(salesorderEntries.map(setTransactionRecordValues));
+        Promise.all(editlog.map(setTransactionRecordValues));
 
         if (predictionsUpdated) {
             const worstcase = page.getValue({fieldId: 'custpage_worstcase'});
@@ -233,6 +338,7 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         }
 
         editlog = [];
+        recordEdits = {};
     }
 
     function getInternalId(sublistId, line) {
@@ -249,155 +355,81 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         return params.substring(3,params.indexOf('&'));
     }
 
-    function edited(entry) {
-        return editlog.includes(entry.id);
-    }
-
-    function getEntryValues(sublistId, type) {
-        entryValues = [];
-        const total = page.getLineCount({sublistId: sublistId});
-        var lineitems = [];
-        var preventry = {};
-        var previd = '';
-        for (var line = 0; line < total; line++) {
-            var id = getInternalId(sublistId, line);
-
-            if (sublistId !== 'custpage_salesorder') {
-                var probability = page.getSublistValue({
-                    sublistId: sublistId,
-                    fieldId: 'probability',
-                    line: line
-                });
-            }
-
-            if (previd !== id && line !== 0) {
-                entryValues.push(preventry);
-                lineitems = [];
-                previd = id;
-            }
-
-            var flightend = page.getSublistValue({
-                sublistId: sublistId,
-                fieldId: 'custcol_agency_mf_flight_end_date',
-                line: line
-            }).toString();
-
-            if (sublistId === 'custpage_salesorder'){
-                var mediaQuantity = page.getSublistValue({
-                    sublistId: sublistId,
-                    fieldId: 'custcol_agency_mf_media_quantity_1',
-                    line: line
-                });
-                lineitems.push({
-                    flightend: flightend,
-                    mediaQuantity: mediaQuantity
-                });
-                preventry = {
-                    id: id,
-                    type: type,
-                    lineitems: lineitems,
-                };
-            } else {
-                var forecast = page.getSublistValue({
-                    sublistId: sublistId,
-                    fieldId: 'custcolforecast_inclusion',
-                    line: line
-                });
-                var amount = page.getSublistValue({
-                    sublistId: sublistId,
-                    fieldId: 'amount',
-                    line: line
-                });
-
-                lineitems.push({
-                    forecast: forecast,
-                    flightend: flightend,
-                    gross: amount
-                });
-                preventry = {
-                    id: id,
-                    type: type,
-                    probability: probability,
-                    lineitems: lineitems,
-                };
-            }
-
-            if (line === (total-1)){
-                entryValues.push(preventry);
-            }
-        }
-
-        return entryValues;
-    }
-
-    function setTransactionRecordValues(entryObj) {
+    function setTransactionRecordValues(recEntry) {
         const loaded = record.load.promise({
-            type: entryObj.type,
-            id: entryObj.id,
+            type: recEntry.type,
+            id: recEntry.id,
         });
         loaded.then(function(recObj){
-            // probability set once on opportunity item
-            if (entryObj.type !== record.Type.SALES_ORDER) {
-                recObj.setValue({
-                    fieldId: 'probability',
-                    value: entryObj.probability,
-                    ignoreFieldChange: true
-                });
-            }
-
-            // index line number on sublist by flight end date to match with table info
-            const linecount = recObj.getLineCount({sublistId: 'item'});
-            var dateindex = {};
-            for (var line = 0 ; line < linecount; line++) {
-                var flightend = recObj.getSublistValue({
-                    sublistId: 'item',
-                    fieldId: 'custcol_agency_mf_flight_end_date',
-                    line: line
-                }).toString();
-                dateindex[flightend] = line;
-            }
-
-            // update line item amounts entries in table
-            entryObj.lineitems.forEach(function(itementry){
-                if (entryObj.type === record.Type.SALES_ORDER) {
-                    
-                    recObj.setSublistValue({
-                        sublistId: 'item',
-                        fieldId: 'custrecord_agency_mf_delivery_date',
-                        line: dateindex[itementry.flightend],
-                        value: itementry.flightend
-                    });
-                    recObj.setSublistValue({
-                        sublistId: 'item',
-                        fieldId: 'custcol_agency_mf_media_quantity_1',
-                        line: dateindex[itementry.flightend],
-                        value: itementry.mediaQuantity
-                    });
-                } else {
-                    // set forecast include
-                    recObj.setSublistValue({
-                        sublistId: 'item',
-                        fieldId: 'custcolforecast_inclusion',
-                        line: dateindex[itementry.flightend],
-                        value: itementry.forecast
-                    });
-                    // set amount on opportunity
-                    if (entryObj.type === record.Type.OPPORTUNITY) {
+            var probabilityUpdated = false;
+            recEntry.lines.forEach(function(line) {
+                Object.keys(line).forEach(function(fieldId) {
+                    if (fieldId === 'probability' && !probabilityUpdated) {
+                        recObj.setValue({
+                            fieldId: 'probability',
+                            value: line.probability,
+                            ignoreFieldChange: true
+                        });
+                        probabilityUpdated = true;
+                    } else if (fieldId === 'custcol_agency_mf_media_quantity_1') {
+                        var mediaQuantity = line.custcol_agency_mf_media_quantity_1;
+                        // update the item display
                         recObj.setSublistValue({
                             sublistId: 'item',
-                            fieldId: 'amount',
-                            line: dateindex[itementry.flightend],
-                            value: itementry.gross
-                        });  
+                            fieldId: 'custcol_agency_mf_media_quantity_1',
+                            line: line.index,
+                            value: mediaQuantity
+                        });
+                        // build new media item sourced from transaction record
+                        var mediaItem = record.create({type: 'customrecord_agency_mf_media'});
+                        var lineId = recObj.getSublistValue({
+                            sublistId: 'item',
+                            fieldId: 'custcol_agency_mf_line_id',
+                            line: line.index
+                        });
+                        var flightEndDate = recObj.getSublistValue({
+                            sublistId: 'item',
+                            fieldId: 'custcol_agency_mf_flight_end_date',
+                            line: line.index
+                        });
+                        mediaItem.setValue({
+                            fieldId: 'custrecord_agency_mf_delivery_date',
+                            value: flightEndDate
+                        });
+                        mediaItem.setValue({
+                            fieldId: 'custrecord_agency_mf_order',
+                            value: recObj.id
+                        });
+                        mediaItem.setValue({
+                            fieldId: 'custrecord_agency_mf_line_id',
+                            value: lineId
+                        });
+                        mediaItem.setValue({
+                            fieldId: 'custrecord_agency_mf_quantity_1',
+                            value: mediaQuantity,
+                        });
+                        mediaItem.setValue({
+                            fieldId: 'custrecord_agency_mf_fulfilled',
+                            value: false
+                        });
+                        var mediaId = mediaItem.save();
+                        console.log('created new media item : ' + mediaId);
+                    } else {
+                        recObj.setSublistValue({
+                            sublistId: 'item',
+                            fieldId: fieldId,
+                            line: line.index,
+                            value: line[fieldId]
+                        });
                     }
-                }
+                });
             });
+
             var recordId = recObj.save({ignoreMandatoryFields: true});
             console.info('Updated Transaction ID: ' + recordId);
         }).catch(function(reason) {
             console.info("Failed: " + reason);
             console.info('error name: ' + reason.name);
-            //do something on failure
         });
         return;
     }

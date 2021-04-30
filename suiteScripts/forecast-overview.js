@@ -130,6 +130,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
 
     const results = [];
     const abreviatedMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const totalsCol = {};
 
     const dateIndex = (filter) => {
         const twelveMonths = [];
@@ -157,6 +158,17 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             });
             if (calcsCSV) results.push(getResults(calcsCSV, month, year, filter));
         });
+        fieldObjs.push({ 
+            id: 'custpage_total',
+            label: 'TOTAL',
+            type: ui.FieldType.TEXT,
+        });
+        if (calcsCSV) results.push(totalsCol[filter.displayvalue]);
+        log.debug({
+            title: 'results',
+            details: results
+        });
+
         return fieldObjs;
     };
 
@@ -298,16 +310,6 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             list.setSublistValue(value.sublistEntry);
         });
 
-        const lastRow = groupType[type].values.length;
-        // add total row
-        if (filter.displayvalue !== 'booked') {
-            list.setSublistValue({
-                id: 'custpage_' + type + '_name',
-                line: lastRow,
-                value: 'TOTAL'
-            });
-        }
-
         const formatValue = (value, isTotal) => {
             if (filter.displayvalue !== 'booked') {
                 const money = format.format({value: value, type: format.Type.CURRENCY}).slice(0,-3);
@@ -323,41 +325,35 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             } else {
                 color = '#2eb82e';
             }
-            return '<b style="font-size:110%;color:'+color+';">'+percent+'</b>'
+            const size = (isTotal) ? '120' : '110';
+            return '<b style="font-size:'+size+'%;color:'+color+';">'+percent+'</b>'
         };
 
         const setValues = params => {
             const { fieldId, index } = params;
-            let total = 0;
 
             monthResults = results[index];
             groupType[type].values.forEach(value => {
                 let display = monthResults[type]?.[value.id];
+                let thisline = value.sublistEntry.line;
 
                 // skip setting values where no total is recorded in results
                 if (display === 0 || display) {
                     list.setSublistValue({
                         id: fieldId,
-                        line: value.sublistEntry.line,
-                        value: formatValue(display)
+                        line: thisline,
+                        value: formatValue(display, (fieldId === 'custpage_total' || value.id === 'total'))
                     });
-                    total += display;
                 }
             });
-            return total;
+            return;
         }
 
         dateFields(filter).forEach((month, index) => {
             list.addField(month);
-            const monthTotal = setValues({fieldId: month.id, index: index});
-            if (filter.displayvalue !== 'booked') {
-                list.setSublistValue({
-                    id: month.id,
-                    line: lastRow,
-                    value: formatValue(monthTotal, 1)
-                });
-            }
-        })
+
+            setValues({fieldId: month.id, index: index});
+        });
 
         return list;
     }
@@ -373,7 +369,9 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
         s.create({
             type: s.Type.EMPLOYEE,
             columns: ['entityid', 'issalesrep'],
-            filters: ['subsidiary', s.Operator.ANYOF, ['2']]
+            filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
+                ['isinactive', s.Operator.IS, ['F']]
+            ]
         }).run().each(res => {
             if (res.getValue({name: 'issalesrep'})){
                 field.addSelectOption({
@@ -395,6 +393,14 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
                 index++;
             }
             return true;
+        });
+        groupType.salesrep.values.push({
+            id: 'total',
+            sublistEntry: {
+                id: 'custpage_salesrep_name',
+                line: index,
+                value: 'TOTAL'
+            }
         });
     }
 
@@ -431,6 +437,14 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             propertyNameIndex[propertyName] = res.id;
             index++;
             return true;
+        });
+        groupType.class.values.push({
+            id: 'total',
+            sublistEntry: {
+                id: 'custpage_class_name',
+                line: index,
+                value: 'TOTAL'
+            }
         });
     }
 
@@ -472,9 +486,11 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
     }
 
     function getBookedResult(calcsCSV, month, year, filter) {
+        // collect numerator results
         filter.displayvalue = 'salesorder';
         const salesorderResults = getResults(calcsCSV, month, year, filter);
 
+        // collect denominator results
         filter.displayvalue = 'quota';
         const quotaResults = getResults(calcsCSV, month, year, filter);
 
@@ -498,10 +514,39 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             }
         });
 
+        // calculate totals column for booked
+        totalsCol.booked = {};
+        totalsCol.booked.salesrep = {};
+        totalsCol.booked.class = {};
+        Object.keys(totalsCol.quota.salesrep).forEach(rep => {
+            let q = totalsCol.quota.salesrep[rep];
+            if (q) {
+                let so = totalsCol.salesorder.salesrep[rep] || 0;
+                totalsCol.booked.salesrep[rep] = ((so/q)*100).toFixed(2);
+            }
+        });
+
+        Object.keys(totalsCol.quota.class).forEach(prop => {
+            let q = totalsCol.quota.class[prop];
+            if (q) {
+                let so = totalsCol.salesorder.class[prop] || 0;
+                totalsCol.booked.class[prop] = ((so/q)*100).toFixed(2);
+            }
+        });
+
         return {
             salesrep: bookedSalesrepResults,
             class: bookedPropertyResults
         };
+    }
+
+    function setTotalsCol(type, id, displayvalue, value) {
+        if (!totalsCol[displayvalue]) totalsCol[displayvalue] = {};
+        if (!totalsCol[displayvalue][type]) totalsCol[displayvalue][type] = {};
+        if (!totalsCol[displayvalue][type][id]) totalsCol[displayvalue][type][id] = 0;
+        totalsCol[displayvalue][type][id] += value;
+        if (!totalsCol[displayvalue][type]['total']) totalsCol[displayvalue][type]['total'] = 0;
+        totalsCol[displayvalue][type]['total'] += value;
     }
 
     function getSalesrepResults(csvObjs, displayvalue, property) {
@@ -518,6 +563,9 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
                 if (monthTotal === 0 || monthTotal) {
                     if (!entries[repId]) entries[repId] = 0;
                     entries[repId] += monthTotal;
+                    if (!entries['total']) entries['total'] = 0;
+                    entries['total'] += monthTotal;
+                    setTotalsCol('salesrep', repId, displayvalue, monthTotal);
                 }
             }
         });
@@ -538,6 +586,9 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
                 if (monthTotal === 0 || monthTotal) {
                     if (!entries[propertyId]) entries[propertyId] = 0;
                     entries[propertyId] += monthTotal;
+                    if (!entries['total']) entries['total'] = 0;
+                    entries['total'] += monthTotal;
+                    setTotalsCol('class', propertyId, displayvalue, monthTotal);
                 }
             }
         });
