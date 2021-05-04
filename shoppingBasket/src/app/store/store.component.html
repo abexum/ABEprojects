@@ -1,0 +1,24 @@
+<h1>TASC Store of Perplexing Variety</h1>
+<button (click)="newBasket()">Empty Shopping Basket</button>
+<main>
+        <h2>
+            Store Catalog
+        </h2>
+        <app-goods-item
+            *ngFor="let item of catalog; let i = index"
+            [title]="item"
+            (click)="addToBasket(i)">
+        </app-goods-item>
+        <h2>
+            Your Shopping Basket
+        </h2>
+        <app-goods-item
+            *ngFor="let item of basket; let i = index"
+            [title]="item"
+            (click)="removeItem(i)">
+        </app-goods-item>
+        <h2>
+            Receipt
+        </h2>
+</main>
+
