@@ -41,6 +41,12 @@
             "imported": true
         },
         {
+            "title": "Discman",
+            "price": 55.00,
+            "taxExempt": false,
+            "imported": false
+        },
+        {
             "title": "Imported bottle of Wine",
             "price": 10.00,
             "taxExempt": false,

@@ -40,23 +40,29 @@ export class StoreComponent implements OnInit {
     let totalC: number = 0;
     let taxesC: number = 0;
 
-    const round  = (tax: number) => Math.ceil(tax*20)/20;
-    const { salesTax, importDuty } = inventory.taxes;
-    const newline = '<br>';
-
-    this.basket.forEach( item => {
-      let { price, taxExempt, imported } = item;
-
-      totalC += price;
-      if (!taxExempt) taxesC += round(salesTax*price);
-      if (imported) taxesC += round(importDuty*price);
-    });
-    totalC += taxesC;
-
-    this.total = totalC.toFixed(2);
-    this.taxes = taxesC.toFixed(2);
-
     this.receipt = this.basket;
+
+    const round  = (tax: number) => Math.ceil(tax*20)/20;
+    const cash = (price: number) => price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+    const { salesTax, importDuty } = inventory.taxes;
+
+    this.receipt.forEach(item => {
+      let { price, taxExempt, imported } = item;
+      totalC += price;
+
+      let itemTax: number = 0;
+      if (!taxExempt) itemTax += round(salesTax*price);
+      if (imported) itemTax += round(importDuty*price);
+
+      item.taxIncludedPrice = cash(item.price + itemTax);
+      taxesC += itemTax;
+      totalC += itemTax;
+
+    });
+
+    this.total = cash(totalC);
+    this.taxes = cash(taxesC);
 
     this.newBasket();
   }
