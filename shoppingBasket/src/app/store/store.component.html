@@ -6,19 +6,32 @@
         </h2>
         <app-goods-item
             *ngFor="let item of catalog; let i = index"
-            [title]="item"
+            [title]="item.title"
+            [price]="item.price"
             (click)="addToBasket(i)">
         </app-goods-item>
         <h2>
-            Your Shopping Basket
+            Shopping Basket
         </h2>
         <app-goods-item
             *ngFor="let item of basket; let i = index"
-            [title]="item"
+            [title]="item.title"
+            [price]="item.price"
             (click)="removeItem(i)">
         </app-goods-item>
-        <h2>
-            Receipt
-        </h2>
+        <br><br>
+        <button (click)="printReceipt()">Checkout</button>
+        <div *ngIf="receipt.length">
+            <h1>Receipt</h1>
+            <ul>
+                <app-receipt
+                    *ngFor="let item of receipt;"
+                    [title]="item.title"
+                    [price]="item.price">
+                </app-receipt>
+                <li>Sales Tax: {{ taxes }}</li>
+                <li>Total: {{ total }}</li>
+            </ul>
+        </div>
 </main>
 

@@ -7,9 +7,11 @@ import * as inventory from './inventory.json';
   styleUrls: ['./store.component.scss']
 })
 export class StoreComponent implements OnInit {
-  // receipt!: string;
   basket: any[] = [];
   catalog: any[] = [];
+  receipt: any[] = [];
+  total: string = '';
+  taxes: string = '';
 
   constructor() { }
 
@@ -18,7 +20,7 @@ export class StoreComponent implements OnInit {
   }
 
   newBasket() {
-    this.catalog = inventory.catalogItems.map(item => item.title);
+    this.catalog = inventory.catalogItems;
     this.basket = [];
   }
 
@@ -26,11 +28,37 @@ export class StoreComponent implements OnInit {
     if (this.catalog[idx]) {
       this.basket.push(this.catalog[idx]);
     }
+
   }
   removeItem(idx: number) {
     if (this.basket[idx]) {
       this.basket.splice(idx, 1);
     }
+  }
+
+  printReceipt() {
+    let totalC: number = 0;
+    let taxesC: number = 0;
+
+    const round  = (tax: number) => Math.ceil(tax*20)/20;
+    const { salesTax, importDuty } = inventory.taxes;
+    const newline = '<br>';
+
+    this.basket.forEach( item => {
+      let { price, taxExempt, imported } = item;
+
+      totalC += price;
+      if (!taxExempt) taxesC += round(salesTax*price);
+      if (imported) taxesC += round(importDuty*price);
+    });
+    totalC += taxesC;
+
+    this.total = totalC.toFixed(2);
+    this.taxes = taxesC.toFixed(2);
+
+    this.receipt = this.basket;
+
+    this.newBasket();
   }
 
 }

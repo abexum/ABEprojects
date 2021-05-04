@@ -1,7 +1,7 @@
 {
     "taxes" : {
-        "sales": 0.1,
-        "import": 0.05
+        "salesTax": 0.1,
+        "importDuty": 0.05
     },
     "catalogItems" : [
         {
@@ -23,25 +23,25 @@
             "imported": false
         },
         {
-            "title": "Bag of Vanilla-Hazelnut Coffee",
+            "title": "Imported bag of Vanilla-Hazelnut Coffee",
             "price": 11.00,
             "taxExempt": true,
             "imported": true
         },
         {
-            "title": "Vespa",
+            "title": "Imported Vespa",
             "price": 15001.25,
             "taxExempt": false,
             "imported": true
         },
         {
-            "title": "Crate of Almond Snickers",
+            "title": "Imported crate of Almond Snickers",
             "price": 75.99,
             "taxExempt": true,
             "imported": true
         },
         {
-            "title": "Bottle of Wine",
+            "title": "Imported bottle of Wine",
             "price": 10.00,
             "taxExempt": false,
             "imported": true
