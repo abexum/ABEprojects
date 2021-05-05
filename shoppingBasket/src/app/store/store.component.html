@@ -19,8 +19,8 @@
         (click)="removeItem(i)">
     </app-goods-item>
     <div>
-        <button [disabled]="!basket.length" (click)="newBasket()">Empty Shopping Basket</button>
         <button [disabled]="!basket.length" (click)="printReceipt()">Checkout</button>
+        <button [disabled]="!basket.length" (click)="newBasket()">Empty Shopping Basket</button>
     </div>
     <div *ngIf="receipt.length">
         <h1>Receipt</h1>
