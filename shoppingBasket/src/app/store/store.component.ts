@@ -6,6 +6,7 @@ import * as inventory from './inventory.json';
   templateUrl: './store.component.html',
   styleUrls: ['./store.component.scss']
 })
+
 export class StoreComponent implements OnInit {
   basket: any[] = [];
   catalog: any[] = [];

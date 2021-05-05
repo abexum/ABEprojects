@@ -14,11 +14,17 @@ module.exports = function (config) {
       require('karma-coverage'),
       require('@angular-devkit/build-angular/plugins/karma')
     ],
-    browsers: ['ChromeHeadlessNoSandbox'],
+    browsers: ['ChromeHeadlessNoSandbox', 'FirefoxHeadless'],
     customLaunchers: {
       ChromeHeadlessNoSandbox: {
         base: 'ChromeHeadless',
-        flags: ['--no-sandbox']
+        flags: ['--headless', '--no-sandbox']
+      },
+      HeadlessFirefox: {
+        base: 'FirefoxHeadless',
+        flags: [
+          '-headless',
+        ],
       }
     },
     client: {
