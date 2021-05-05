@@ -11,15 +11,9 @@ import { Component, Input } from '@angular/core';
 
 export class ReceiptComponent {
 
-  // @Input() items: object[] = [];
-  // @Input() salesTax: string = '';
-  // @Input() total: string = '';
   @Input() title: string = '';
-  @Input() price: number = 0.00;
+  @Input() price: string = '';
 
-  
-
-  constructor() { 
-  }
+  constructor() { }
 
 }

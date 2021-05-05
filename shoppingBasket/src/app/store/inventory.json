@@ -5,20 +5,26 @@
     },
     "catalogItems" : [
         {
+            "title": "Popcorn",
+            "price": 0.99,
+            "taxExempt": true,
+            "imported": false
+        },
+        {
             "title": "16lb bag of Skittles",
             "price": 16.00,
             "taxExempt": true,
             "imported": false
         },
         {
-            "title": "Walkman",
-            "price": 99.99,
-            "taxExempt": false,
-            "imported": false
+            "title": "Imported crate of Almond Snickers",
+            "price": 75.99,
+            "taxExempt": true,
+            "imported": true
         },
         {
-            "title": "Popcorn",
-            "price": 0.99,
+            "title": "300# bag of Fair-Trade Coffee",
+            "price": 997.99,
             "taxExempt": true,
             "imported": false
         },
@@ -29,16 +35,16 @@
             "imported": true
         },
         {
-            "title": "Imported Vespa",
-            "price": 15001.25,
+            "title": "Imported bottle of Wine",
+            "price": 10.00,
             "taxExempt": false,
             "imported": true
         },
         {
-            "title": "Imported crate of Almond Snickers",
-            "price": 75.99,
-            "taxExempt": true,
-            "imported": true
+            "title": "Walkman",
+            "price": 99.99,
+            "taxExempt": false,
+            "imported": false
         },
         {
             "title": "Discman",
@@ -47,16 +53,10 @@
             "imported": false
         },
         {
-            "title": "Imported bottle of Wine",
-            "price": 10.00,
+            "title": "Imported Vespa",
+            "price": 15001.25,
             "taxExempt": false,
             "imported": true
-        },
-        {
-            "title": "300# bag of Fair-Trade Coffee",
-            "price": 997.99,
-            "taxExempt": true,
-            "imported": false
         }
     ]
 }
