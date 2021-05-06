@@ -1,0 +1,11 @@
+{
+  "targets": {
+    "abeprojects-90b88": {
+      "hosting": {
+        "shoppingBasket": [
+          "abeprojects-90b88"
+        ]
+      }
+    }
+  }
+}
