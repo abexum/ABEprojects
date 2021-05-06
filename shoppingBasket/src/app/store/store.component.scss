@@ -1,5 +1,10 @@
-ul {
-    list-style-type: none; /* Remove bullets */
-    padding: 0; /* Remove padding */
-    margin: 0; /* Remove margins */
+nb-card-body {
+    display: grid;
+    grid-template-columns: 400px 400px 400px;
+    grid-gap: 2px;
+}
+nb-card-footer {
+    display: grid;
+    grid-template-columns: 300px 300px;
+    grid-gap: 2px;
 }

@@ -1,38 +1,43 @@
-<h1>TASC Store of Perplexing Variety</h1>
 <main>
-    <h2>
-        Store Catalog
-    </h2>
-    <app-goods-item
-        *ngFor="let item of catalog; let i = index"
-        [title]="item.title"
-        [price]="cash(item.price)"
-        (click)="addToBasket(i)">
-    </app-goods-item>
-    <h2>
-        Shopping Basket
-    </h2>
-    <app-goods-item
-        *ngFor="let item of basket; let i = index"
-        [title]="item.title"
-        [price]="cash(item.price)"
-        (click)="removeItem(i)">
-    </app-goods-item>
-    <div>
-        <button [disabled]="!basket.length" (click)="printReceipt()">Checkout</button>
-        <button [disabled]="!basket.length" (click)="newBasket()">Empty Shopping Basket</button>
-    </div>
-    <div *ngIf="receipt.length">
-        <h1>Receipt</h1>
-        <ul>
-            <app-receipt
-                *ngFor="let item of receipt;"
+    <nb-card>
+        <nb-card-header><h4>Store Catelog</h4></nb-card-header>
+        <nb-card-body>
+            <app-goods-item
+                *ngFor="let item of catalog; let i = index"
                 [title]="item.title"
-                [price]="item.taxIncludedPrice">
-            </app-receipt>
-            <li>Sales Tax: {{ taxes }}</li>
-            <li>Total: {{ total }}</li>
-        </ul>
-    </div>
+                [price]="cash(item.price)"
+                [taxExempt]="item.taxExempt"
+                [imported]="item.imported"
+                (click)="addToBasket(i)">
+            </app-goods-item>
+        </nb-card-body>
+    </nb-card>
+    <nb-card>
+        <nb-card-header><h4>Shopping Basket</h4></nb-card-header>
+        <nb-card-body>
+            <app-goods-item
+            *ngFor="let item of basket; let i = index"
+            [title]="item.title"
+            [price]="cash(item.price)"
+            [taxExempt]="item.taxExempt"
+            [imported]="item.imported"
+            (click)="removeItem(i)">
+        </app-goods-item>
+        </nb-card-body>
+        <nb-card-footer>
+            <button nbButton outline status="success" [disabled]="!basket.length" (click)="printReceipt()">Checkout</button>
+            <button nbButton outline status="danger" [disabled]="!basket.length" (click)="newBasket()">Empty Shopping Basket</button>
+        </nb-card-footer>
+    </nb-card>
+    <nb-card *ngIf="receipt.length">
+        <nb-card-header><h4>Receipt</h4></nb-card-header>
+        <nb-card-body>
+            <dl>
+                <dt *ngFor="let item of receipt;">1 {{ item.title }}: {{ item.taxIncludedPrice }}</dt>
+                <dt>Sales Tax: {{ taxes }}</dt>
+                <dt>Total: {{ total }}</dt>
+            </dl>
+        </nb-card-body>
+    </nb-card>
 </main>
 
