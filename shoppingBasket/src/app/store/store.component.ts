@@ -17,11 +17,11 @@ export class StoreComponent implements OnInit {
   constructor() { }
 
   ngOnInit(): void {
+    this.catalog = inventory.catalogItems;
     this.newBasket();
   }
 
   newBasket() {
-    this.catalog = inventory.catalogItems;
     this.basket = [];
   }
 
@@ -29,8 +29,8 @@ export class StoreComponent implements OnInit {
     if (this.catalog[idx]) {
       this.basket.push(this.catalog[idx]);
     }
-
   }
+
   removeItem(idx: number) {
     if (this.basket[idx]) {
       this.basket.splice(idx, 1);
