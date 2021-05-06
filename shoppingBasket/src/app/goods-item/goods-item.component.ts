@@ -3,7 +3,7 @@ import { Component, Input } from '@angular/core';
 @Component({
   selector: 'app-goods-item',
   template: `
-    <button>{{ title }}<br>$ {{ price.toFixed(2) }}</button>
+    <button>{{ title }}<br>$ {{ price }}</button>
   `,
   styles: [
   ]
@@ -11,6 +11,6 @@ import { Component, Input } from '@angular/core';
 export class GoodsItemComponent {
 
   @Input() title: string = '';
-  @Input() price: number = 0.00;
+  @Input() price: string = '';
 
 }

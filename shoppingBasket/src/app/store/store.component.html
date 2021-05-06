@@ -6,7 +6,7 @@
     <app-goods-item
         *ngFor="let item of catalog; let i = index"
         [title]="item.title"
-        [price]="item.price"
+        [price]="cash(item.price)"
         (click)="addToBasket(i)">
     </app-goods-item>
     <h2>
@@ -15,7 +15,7 @@
     <app-goods-item
         *ngFor="let item of basket; let i = index"
         [title]="item.title"
-        [price]="item.price"
+        [price]="cash(item.price)"
         (click)="removeItem(i)">
     </app-goods-item>
     <div>

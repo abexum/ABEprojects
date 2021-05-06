@@ -37,6 +37,10 @@ export class StoreComponent implements OnInit {
     }
   }
 
+  cash(price: number) {
+    return price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+
   printReceipt() {
     let totalC: number = 0;
     let taxesC: number = 0;
@@ -44,7 +48,6 @@ export class StoreComponent implements OnInit {
     this.receipt = this.basket;
 
     const round  = (tax: number) => Math.ceil(tax*20)/20;
-    const cash = (price: number) => price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
     const { salesTax, importDuty } = inventory.taxes;
 
@@ -56,14 +59,14 @@ export class StoreComponent implements OnInit {
       if (!taxExempt) itemTax += round(salesTax*price);
       if (imported) itemTax += round(importDuty*price);
 
-      item.taxIncludedPrice = cash(item.price + itemTax);
+      item.taxIncludedPrice = this.cash(item.price + itemTax);
       taxesC += itemTax;
       totalC += itemTax;
 
     });
 
-    this.total = cash(totalC);
-    this.taxes = cash(taxesC);
+    this.total = this.cash(totalC);
+    this.taxes = this.cash(taxesC);
 
     this.newBasket();
   }
