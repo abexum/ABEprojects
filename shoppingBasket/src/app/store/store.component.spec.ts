@@ -30,5 +30,8 @@ describe('StoreComponent', () => {
   it('should have empty shopping basket', () => {
     expect(component.basket).toEqual([]);
   });
-
+  
+  it('should have empty receipt', () => {
+    expect(component.receipt).toEqual([]);
+  });
 });
