@@ -1,5 +1,7 @@
 import { Component, OnInit } from '@angular/core';
-import * as inventory from './inventory.json';
+// import * as inventory from '../services/inventory.json';
+import { InventoryService } from '../services/inventory.service';
+
 
 @Component({
   selector: 'app-store',
@@ -14,10 +16,12 @@ export class StoreComponent implements OnInit {
   total: string = '';
   taxes: string = '';
 
-  constructor() { }
 
-  ngOnInit(): void {
-    this.catalog = inventory.catalogItems;
+  constructor(private inventory: InventoryService) { 
+  }
+
+  async ngOnInit(): Promise<void> {
+    this.catalog = await this.inventory.getCatalogItems();
     this.newBasket();
   }
 
@@ -41,7 +45,7 @@ export class StoreComponent implements OnInit {
     return price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
 
-  printReceipt() {
+  async printReceipt() {
     let totalC: number = 0;
     let taxesC: number = 0;
 
@@ -49,7 +53,10 @@ export class StoreComponent implements OnInit {
 
     const round  = (tax: number) => Math.ceil(tax*20)/20;
 
-    const { salesTax, importDuty } = inventory.taxes;
+    // const { salesTax, importDuty } = inventory.taxes;
+    const salesTax = await this.inventory.getSalesTax();
+    const importDuty = await this.inventory.getImportDuty();
+
 
     this.receipt.forEach(item => {
       let { price, taxExempt, imported } = item;
