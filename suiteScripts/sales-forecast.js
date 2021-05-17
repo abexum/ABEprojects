@@ -179,6 +179,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         salesorder: 0
     };
 
+    // move to util
     const fulfillmentView = () => {
         const user = runtime.getCurrentUser();
         // roles...
@@ -216,6 +217,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             || user.role === 1037
         );
     };
+    // end move to util
 
     // other roles ACBM, LLC ...
     // ACBM Concur : 1030
@@ -650,6 +652,16 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             searchFilter.push(statusFilter);
         }
 
+        if (transactionType === 'salesorder') {
+            const cancelledFilter = s.createFilter({
+                name: 'custcolcancelled_line',
+                operator: s.Operator.ISNOT,
+                values: true,
+            });
+            searchFilter.push(cancelledFilter);
+        }
+
+        // Move above to util, append below
         const { salesrep, property } = filter;
         if (repFiltered(filter)) {
             const repFilter = s.createFilter({
@@ -667,7 +679,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             });
             searchFilter.push(propertyFilter);
         }
+        // end append
 
+        // just call searchfilter util for each month when get full year
         const startdate = (month || month === 0)
             ? new Date(filter.startdate.getFullYear(), month, 1)
             : filter.startdate;
@@ -692,6 +706,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return searchFilter;
     }
 
+    // move to util
     function getSalesReps(field, selected) {
         field.addSelectOption({
             value: 0,
@@ -741,18 +756,21 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
     }
 
+
     function defaultStart(start, fullyear) {
         const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
         return (fullyear)
             ? new Date(date.getFullYear(), 0, 1)
             : new Date(date.getFullYear(), date.getMonth(), 1);
     }
+    // this function is probably not needed.
     function defaultEnd(end, fullyear) {
         const date = (end) ? new Date(end.substring(0, end.indexOf('00:00:00'))) : new Date();
         return (fullyear)  
             ? new Date(date.getFullYear(), 11, 31)
             : new Date(date.getFullYear(), date.getMonth() + 1, 0);
     }
+    // end move to util
 
     function translate(result) {
         const fields = typesDictionary[result.recordType].fields;
@@ -778,6 +796,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return row;
     }
 
+    // move to util
     const getRepName = (id) => {
         if (!id || id === '0') return '';
         const employeeRecord = record.load({type: record.Type.EMPLOYEE, id: id});
@@ -788,6 +807,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
         return propertyRecord.getValue({fieldId: 'name'});
     }
+    // end move to util
 
     function getQuotaCSVtotal(filter) {
         const quotaCSV = grabFile('quotaResults.csv');
@@ -797,7 +817,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         }
 
         const lessInfo = (moreInfo) => {
-            const {salesrep, property, date, amountmonthly } = moreInfo;
+            const { salesrep, property, date, amountmonthly } = moreInfo;
             const lessismore = { 
                 salesrep: salesrep,
                 property: property,
@@ -862,6 +882,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return filtered;
     }
 
+    // move to util
     function grabFile(filename) {
         var csvFile = '';
         
@@ -926,6 +947,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
         return csvObjArray;
     }
+    // end move to util
 
     function updateCSV(filter, repPredictions, quota) {
         const { salesrep, property, startdate, fullyear } = filter;
@@ -1010,6 +1032,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         log.audit({title: 'saving new CSV with file id: ' + fileId});
     }
 
+    //move to util
     function csvString(cvsObjs) {
         var csvArray = [];
         var keys = [];
@@ -1029,6 +1052,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         });
         return csvArray.join('\n');
     }
+    // end move to util
 
     function refreshQuotaResults() {
         log.audit({title: 'Refreshing Quota CSV...'});

@@ -107,6 +107,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
         // all whole numbers in the grid, no decimals
     ];
 
+    // move to util (admin view)
     const adminMode = () => {
         const user = runtime.getCurrentUser();
         // roles...
@@ -127,11 +128,13 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             || user.role === 1037
         );
     };
+    // end move to util
 
     const results = [];
     const abreviatedMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const totalsCol = {};
 
+    // move to util
     const dateIndex = (filter) => {
         const twelveMonths = [];
         for (let i = 0; i < 12; i++) {
@@ -145,6 +148,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
         }
         return twelveMonths;
     };
+    // end move to util
 
     const dateFields = (filter) => {
         const fieldObjs = [];
@@ -358,6 +362,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
         return list;
     }
 
+    // move to util
     function getSalesReps(field, selected) {
         field.addSelectOption({
             value: 0,
@@ -394,6 +399,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             }
             return true;
         });
+        // make util return result array and do this values build post util call
         groupType.salesrep.values.push({
             id: 'total',
             sublistEntry: {
@@ -438,6 +444,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             index++;
             return true;
         });
+        // make util return result array and do this values build post util call
         groupType.class.values.push({
             id: 'total',
             sublistEntry: {
@@ -447,6 +454,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             }
         });
     }
+    // end move to util
 
     function getResults(calcsCSV, month, year, filter) {
         const { displayvalue, property, salesrep } = filter;
@@ -595,6 +603,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
         return entries;
     }
 
+    // move to util
     function defaultStart(start) {
         const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
         return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -677,6 +686,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
         });
         return csvObjArray;
     }
+    // end move to util
 
     exports.onRequest = onRequest;
     return exports;

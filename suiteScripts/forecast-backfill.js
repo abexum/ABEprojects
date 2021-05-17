@@ -36,6 +36,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
      * @function execute
      */
 
+    // move to util
     const dateIndex = (filter) => {
         const twelveMonths = [];
         for (let i = 0; i < 12; i++) {
@@ -49,6 +50,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         }
         return twelveMonths;
     };
+    // end move to util
 
     const commonFields = ['salesrep', 'class', 'amount'];
     const nonOrderFields = ['custcolforecast_inclusion', 'probability'];
@@ -184,6 +186,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         });
     }
 
+    // move to util
     function searchFilter(transactionType, month, year) {
         let searchFilter = [];
 
@@ -219,6 +222,15 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
                 formula: '{status}'
             });
             searchFilter.push(statusFilter);
+        }
+        
+        if (transactionType === 'salesorder') {
+            const cancelledFilter = s.createFilter({
+                name: 'custcolcancelled_line',
+                operator: s.Operator.ISNOT,
+                values: true,
+            });
+            searchFilter.push(cancelledFilter);
         }
 
         const startdate = new Date(year, month, 1);
@@ -257,7 +269,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
                 if (calcs[date][salesrep]?.[property]) {
                     Object.keys(calcs[date][salesrep][property]).forEach(key => {
                         let value = calcs[date][salesrep][property][key];
-                        if (value || value === 0) line[key] = value;
+                        if (value || value === 0) csvObjs[index][key] = value;
                     });
                     delete calcs[date][salesrep][property];
                 } else {
@@ -310,7 +322,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         });
         // file id is hard coded here (prod environment)
         newCSV.encoding = file.Encoding.UTF_8;
-        newCSV.folder = 1020;
+        newCSV.folder = 4579;
         
         const fileId = newCSV.save();
         log.audit({title: 'saving forecastTotals CSV with file id: ' + fileId});
