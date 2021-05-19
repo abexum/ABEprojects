@@ -1,5 +1,14 @@
-define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidget", "N/runtime", "N/log"],
-    function (s, task, file, format, record, ui, runtime, log) {
+define([
+    "N/search",
+    "N/task",
+    "N/file",
+    "N/format",
+    "N/record",
+    "N/ui/serverWidget",
+    "N/runtime",
+    "N/log",
+    "./FCUtil"
+], function (s, task, file, format, record, ui, runtime, log, FCUtil) {
 
     /**
      * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
@@ -108,7 +117,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
     ];
 
     // move to util (admin view)
-    const adminMode = () => {
+    const adminView = () => {
         const user = runtime.getCurrentUser();
         // roles...
         // administrator : 3
@@ -152,8 +161,8 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
 
     const dateFields = (filter) => {
         const fieldObjs = [];
-        const calcsCSV = grabFile('forecastTotals.csv');
-        dateIndex(filter).forEach(dateObj => {
+        const calcsCSV = FCUtil.grabFile('forecastTotals.csv');
+        FCUtil.dateIndex(filter).forEach(dateObj => {
             let { month, year } = dateObj;
             fieldObjs.push({ 
                 id: month + '_' + year,
@@ -195,7 +204,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
         log.debug({title: 'request parameters', details: context.request.parameters});
 
         const filter = getFilter(context.request);
-        if (adminMode()) {
+        if (FCUtil.adminView()) {
             log.audit({title: 'Starting forecastTotals update task'});
             const backfill = task.create({
                 taskType: task.TaskType.SCHEDULED_SCRIPT,
@@ -252,7 +261,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             type: ui.FieldType.SELECT,
             container: 'custpage_filtergroup'
         });
-        getSalesReps(salesRepSearchField, filter.salesrep);
+        buildSalesReps(salesRepSearchField, filter.salesrep);
 
         const propertySearchField = page.addField({
             id: 'custpage_property',
@@ -260,7 +269,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             type: ui.FieldType.SELECT,
             container: 'custpage_filtergroup'
         });
-        getProperties(propertySearchField, filter.property);
+        buildProperties(propertySearchField, filter.property);
         propertySearchField.updateBreakType({ breakType : ui.FieldBreakType.STARTCOL });
 
         const displayValueField = page.addField({
@@ -287,7 +296,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
     function getFilter(request) {
         const { salesrep, property, startdate, displayvalue } = request.parameters;
 
-        const startValue = defaultStart(startdate);
+        const startValue = FCUtil.defaultStart(startdate);
 
         return {
             salesrep: salesrep,
@@ -363,75 +372,79 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
     }
 
     // move to util
-    function getSalesReps(field, selected) {
-        field.addSelectOption({
-            value: 0,
-            text: '-- All --',
-            isSelected: false
+    function buildSalesReps(field, selected) {
+        FCUtil.getSalesReps(field, selected).forEach((res, index) => {
+            let repName = res.getValue({name: 'entityid'});
+            groupType.salesrep.values.push({
+                id: res.id,
+                sublistEntry: {
+                    id: 'custpage_salesrep_name',
+                    line: index,
+                    value: repName
+                }
+            });
+            repNameIndex[repName] = res.id;
         });
-
-        let index = 0;
-        s.create({
-            type: s.Type.EMPLOYEE,
-            columns: ['entityid', 'issalesrep'],
-            filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
-                ['isinactive', s.Operator.IS, ['F']]
-            ]
-        }).run().each(res => {
-            if (res.getValue({name: 'issalesrep'})){
-                field.addSelectOption({
-                    value: res.id,
-                    text: res.getValue({name: 'entityid'}),
-                    isSelected: (res.id === selected)
-                });
-                let repName = res.getValue({name: 'entityid'});
-
-                groupType.salesrep.values.push({
-                    id: res.id,
-                    sublistEntry: {
-                        id: 'custpage_salesrep_name',
-                        line: index,
-                        value: repName
-                    }
-                });
-                repNameIndex[repName] = res.id;
-                index++;
-            }
-            return true;
-        });
-        // make util return result array and do this values build post util call
+        const lastIndex = groupType.salesrep.values.length;
         groupType.salesrep.values.push({
             id: 'total',
             sublistEntry: {
                 id: 'custpage_salesrep_name',
-                line: index,
+                line: lastIndex,
                 value: 'TOTAL'
             }
         });
     }
 
-    function getProperties(field, selected) {
-        field.addSelectOption({
-            value: 0,
-            text: '-- All --',
-            isSelected: false
-        });
+    //     field.addSelectOption({
+    //         value: 0,
+    //         text: '-- All --',
+    //         isSelected: false
+    //     });
 
-        let index = 0;
-        s.create({
-            type: s.Type.CLASSIFICATION,
-            columns: ['name'],
-            filters: [
-                ['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
-                ['isinactive', s.Operator.IS, ['F']]
-            ]
-        }).run().each(res => {
-            field.addSelectOption({
-                value: res.id,
-                text: res.getValue({name: 'name'}),
-                isSelected: (res.id === selected)
-            });
-            let propertyName = res.getValue({name: 'name'})
+    //     let index = 0;
+    //     s.create({
+    //         type: s.Type.EMPLOYEE,
+    //         columns: ['entityid', 'issalesrep'],
+    //         filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
+    //             ['isinactive', s.Operator.IS, ['F']]
+    //         ]
+    //     }).run().each(res => {
+    //         if (res.getValue({name: 'issalesrep'})){
+    //             field.addSelectOption({
+    //                 value: res.id,
+    //                 text: res.getValue({name: 'entityid'}),
+    //                 isSelected: (res.id === selected)
+    //             });
+    //             let repName = res.getValue({name: 'entityid'});
+
+    //             groupType.salesrep.values.push({
+    //                 id: res.id,
+    //                 sublistEntry: {
+    //                     id: 'custpage_salesrep_name',
+    //                     line: index,
+    //                     value: repName
+    //                 }
+    //             });
+    //             repNameIndex[repName] = res.id;
+    //             index++;
+    //         }
+    //         return true;
+    //     });
+    //     // make util return result array and do this values build post util call
+    //     groupType.salesrep.values.push({
+    //         id: 'total',
+    //         sublistEntry: {
+    //             id: 'custpage_salesrep_name',
+    //             line: index,
+    //             value: 'TOTAL'
+    //         }
+    //     });
+    // }
+
+    function buildProperties(field, selected) {
+        FCUtil.getProperties(field, selected).forEach((res, index) => {
+            let propertyName = res.getValue({name: 'name'});
             groupType.class.values.push({
                 id: res.id,
                 sublistEntry: {
@@ -441,19 +454,61 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
                 }
             });
             propertyNameIndex[propertyName] = res.id;
-            index++;
-            return true;
         });
-        // make util return result array and do this values build post util call
+        const lastIndex = groupType.class.values.length;
         groupType.class.values.push({
             id: 'total',
             sublistEntry: {
                 id: 'custpage_class_name',
-                line: index,
+                line: lastIndex,
                 value: 'TOTAL'
             }
         });
     }
+
+    //     field.addSelectOption({
+    //         value: 0,
+    //         text: '-- All --',
+    //         isSelected: false
+    //     });
+
+    //     let index = 0;
+    //     s.create({
+    //         type: s.Type.CLASSIFICATION,
+    //         columns: ['name'],
+    //         filters: [
+    //             ['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
+    //             ['isinactive', s.Operator.IS, ['F']]
+    //         ]
+    //     }).run().each(res => {
+    //         field.addSelectOption({
+    //             value: res.id,
+    //             text: res.getValue({name: 'name'}),
+    //             isSelected: (res.id === selected)
+    //         });
+    //         let propertyName = res.getValue({name: 'name'});
+    //         groupType.class.values.push({
+    //             id: res.id,
+    //             sublistEntry: {
+    //                 id: 'custpage_class_name',
+    //                 line: index,
+    //                 value: propertyName
+    //             }
+    //         });
+    //         propertyNameIndex[propertyName] = res.id;
+    //         index++;
+    //         return true;
+    //     });
+    //     // make util return result array and do this values build post util call
+    //     groupType.class.values.push({
+    //         id: 'total',
+    //         sublistEntry: {
+    //             id: 'custpage_class_name',
+    //             line: index,
+    //             value: 'TOTAL'
+    //         }
+    //     });
+    // }
     // end move to util
 
     function getResults(calcsCSV, month, year, filter) {
@@ -473,7 +528,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
             lessismore[displayvalue] = moreInfo[displayvalue];
             return lessismore;
         };
-        const csvObjs = processCSV(calcsCSV).map(obj => lessInfo(obj));
+        const csvObjs = FCUtil.processCSV(calcsCSV).map(obj => lessInfo(obj));
 
         const filteredObjs = [];
         csvObjs.forEach(line => {
@@ -560,7 +615,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
     function getSalesrepResults(csvObjs, displayvalue, property) {
         let propertyName = '';
         if (property && property !== '0') {
-            propertyName = getPropertyName(property);
+            propertyName = FCUtil.getPropertyName(property);
         }
 
         const entries = {};
@@ -583,7 +638,7 @@ define(["N/search", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidg
     function getPropertyResults(csvObjs, displayvalue, salesrep) {
         let repName = '';
         if (salesrep && salesrep !== '0') {
-            repName = getRepName(salesrep);
+            repName = FCUtil.getRepName(salesrep);
         }
 
         const entries = {};

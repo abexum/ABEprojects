@@ -1,53 +1,133 @@
 define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
-    function (s, file, format, runtime, log) {
+    function (search, file, format, runtime, log) {
 
     /**
-     * Backfill task to populate forecastTotals.csv used in Forecast Suitelets
-     *
-     * @exports forecast-backfill
-     *
-     * @copyright AC Business Media
-     * @author Ashe B Exum <abexum@gmail.com>
-     *
      * @requires N/search
      * @requires N/file
      * @requires N/format
      * @requires N/runtime
-     * @requires N/task
      * @requires N/log
      *
+     * @NModuleScope Public
      * @NApiVersion 2.1
-     * @NModuleScope SameAccount
-     * @NScriptType ScheduledScript
-     */
-    const exports = {};
-
-    /**
-     * <code>execute</code> event handler
-     *
-     * @governance 10,000
-     *
-     * @param context
-     *        {Object}
-     *
-     * @return {void}
-     *
-     * @static
-     * @function execute
      */
 
-     function getSalesReps(field, selected) {
+    const FCUtil = {};
+
+    FCUtil.adminView = () => {
+        const user = runtime.getCurrentUser();
+        // Administrator : 3
+        // CFO : 41
+        // ACBM, LLC - A/P analyst : 1019
+        // ACBM, LLC - A/R analyst : 1020
+        // ACBM, LLC - CFO : 1023
+        // ACBM, LLC - Financial Analyst : 1026
+        // Dunning Director : 1032
+        // Solupay Integration : 1035
+        // CSV Integrator : 1037
+        return (
+            user.role === 3
+            || user.role === 41
+            || user.role === 1019
+            || user.role === 1020
+            || user.role === 1023
+            || user.role === 1026
+            || user.role === 1032
+            || user.role === 1035
+            || user.role === 1037
+        );
+    };
+
+    FCUtil.salesRepView = () => {
+        const user = runtime.getCurrentUser();
+        // ACBM, LLC - CEO : 1022
+        // ACBM, LLC - Sales Manager : 1027
+        // ACBM, LLC - Sales Representative : 1028
+        return ( user.role === 1022
+            || user.role === 1027 
+            || user.role === 1028);
+    };
+
+    FCUtil.fulfillmentView = () => {
+        const user = runtime.getCurrentUser();
+        // ACBM, LLC - Controller : 1024
+        // ACBM, LLC - Production & Order Entry : 1034
+        return (
+            user.role === 1024 
+            || user.role === 1034
+        );
+    };
+
+    /* ALL ROLES w/ Employee assigned
+     *  Administrator : 3
+     *  Employee Center : 15 *
+     *  CFO : 41
+     *  NetSuite Implementation Team : 1017 *
+     *  ACBM, LLC - A/P analyst : 1019
+     *  ACBM, LLC - A/R analyst : 1020
+     *  ACBM, LLC - CEO : 1022
+     *  ACBM, LLC - CFO : 1023
+     *  ACBM, LLC - Controller : 1024
+     *  ACBM, LLC - Employee : 1025 *
+     *  ACBM, LLC - Financial Analyst : 1026
+     *  ACBM, LLC - Sales Manager : 1027
+     *  ACBM, LLC - Sales Representative : 1028
+     *  ACBM Concur : 1030 *
+     *  Dunning Director : 1032
+     *  ACBM, LLC - Production & Order Entry : 1034
+     *  Solupay Integration : 1035
+     *  CSV Integrator : 1037
+     *  ACBM, LLC - Circulation : 1039 *
+     * 
+     * * user roles that have read only view *
+     * there are about 44 roles in the system without any assigned employees as well
+     * TODO rebuild these functions depend on editable records in netsuite
+    */
+
+    FCUtil.dateIndex = (filter) => {
+        const twelveMonths = [];
+        for (let i = 0; i < 12; i++) {
+            let colDate = new Date(filter.startdate.getFullYear(), filter.startdate.getMonth() + i, 1);
+            monthIndex = colDate.getMonth();
+            year = colDate.getFullYear();
+            twelveMonths.push({
+                month: monthIndex,
+                year: year
+            });
+        }
+        return twelveMonths;
+    };
+
+    FCUtil.defaultStart = (start) => {
+        const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
+        return new Date(date.getFullYear(), date.getMonth(), 1);
+    }
+
+    FCUtil.getRepName = (id) => {
+        if (!id || id === '0') return '';
+        const employeeRecord = record.load({type: record.Type.EMPLOYEE, id: id});
+        return employeeRecord.getValue({fieldId: 'entityid'});
+    }
+
+    FCUtil.getPropertyName = (id) => {
+        if (!id || id === '0') return '';
+        const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
+        return propertyRecord.getValue({fieldId: 'name'});
+    }
+
+    FCUtil.getSalesReps = (field, selected) => {
         field.addSelectOption({
             value: 0,
             text: '-- All --',
             isSelected: false
         });
 
-        s.create({
-            type: s.Type.EMPLOYEE,
+        const results = [];
+        search.create({
+            type: search.Type.EMPLOYEE,
             columns: ['entityid', 'issalesrep'],
-            filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
-                ['isinactive', s.Operator.IS, ['F']]
+            filters: [['subsidiary', search.Operator.ANYOF, ['2']], 'and', 
+                ['isinactive', search.Operator.IS, ['F']]
             ]
         }).run().each(res => {
             if (res.getValue({name: 'issalesrep'})){
@@ -56,24 +136,27 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
                     text: res.getValue({name: 'entityid'}),
                     isSelected: (res.id === selected)
                 });
+                results.push(res);
             }
             return true;
         });
+        return results;
     }
 
-    function getProperties(field, selected) {
+    FCUtil.getProperties = (field, selected) => {
         field.addSelectOption({
             value: 0,
             text: '-- All --',
             isSelected: false
         });
 
-        s.create({
-            type: s.Type.CLASSIFICATION,
+        const results = [];
+        search.create({
+            type: search.Type.CLASSIFICATION,
             columns: ['name'],
             filters: [
-                ['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
-                ['isinactive', s.Operator.IS, ['F']]
+                ['subsidiary', search.Operator.ANYOF, ['2']], 'and', 
+                ['isinactive', search.Operator.IS, ['F']]
             ]
         }).run().each(res => {
             field.addSelectOption({
@@ -81,41 +164,43 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
                 text: res.getValue({name: 'name'}),
                 isSelected: (res.id === selected)
             });
+            results.push(res);
             return true;
         });
+        return results;
     }
 
-    function searchFilter(transactionType, month, year) {
+    FCUtil.searchFilter = (transactionType, month, year) => {
         let searchFilter = [];
 
-        const subsFilter = s.createFilter({
+        const subsFilter = search.createFilter({
             name: 'subsidiary',
-            operator: s.Operator.ANYOF,
+            operator: search.Operator.ANYOF,
             values: '2'
         });
         searchFilter.push(subsFilter);
         if (transactionType) {
-            const typeFilter = s.createFilter({
+            const typeFilter = seach.createFilter({
                 name: 'type',
-                operator: s.Operator.ANYOF,
+                operator: search.Operator.ANYOF,
                 values: typesDictionary[transactionType].searchFilter
             });
             searchFilter.push(typeFilter);
         }
 
         if (transactionType === 'opportunity') {
-            const discussionFilter = s.createFilter({
+            const discussionFilter = search.createFilter({
                 name: 'entitystatus',
-                operator: s.Operator.ANYOF,
+                operator: search.Operator.ANYOF,
                 values: '8',
             });
             searchFilter.push(discussionFilter);
         }
 
         if (transactionType === 'estimate') {
-            const statusFilter = s.createFilter({
+            const statusFilter = search.createFilter({
                 name: 'formulatext',
-                operator: s.Operator.IS,
+                operator: search.Operator.IS,
                 values: 'open',
                 formula: '{status}'
             });
@@ -123,9 +208,9 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         }
         
         if (transactionType === 'salesorder') {
-            const cancelledFilter = s.createFilter({
+            const cancelledFilter = search.createFilter({
                 name: 'custcolcancelled_line',
-                operator: s.Operator.ISNOT,
+                operator: search.Operator.ISNOT,
                 values: true,
             });
             searchFilter.push(cancelledFilter);
@@ -136,14 +221,14 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
 
         const startval = format.format({value: startdate, type: format.Type.DATE});
         const endval = format.format({value: enddate, type: format.Type.DATE});
-        const startFilter = s.createFilter({
+        const startFilter = search.createFilter({
             name: 'custcol_agency_mf_flight_end_date',
-            operator: s.Operator.ONORAFTER,
+            operator: search.Operator.ONORAFTER,
             values: startval
         });
-        const endFilter = s.createFilter({
+        const endFilter = search.createFilter({
             name: 'custcol_agency_mf_flight_end_date',
-            operator: s.Operator.ONORBEFORE,
+            operator: search.Operator.ONORBEFORE,
             values: endval
         });
         searchFilter.push(startFilter, endFilter);
@@ -151,7 +236,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         return searchFilter;
     }
 
-    function csvString(cvsObjs) {
+    FCUtil.csvString = (cvsObjs) => {
         var csvArray = [];
         var keys = [];
         Object.keys(cvsObjs[0]).forEach(key => {
@@ -171,7 +256,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         return csvArray.join('\n');
     }
 
-    function grabFile(filename) {
+    FCUtil.grabFile = (filename) => {
         var csvFile = '';
 
         try {
@@ -211,7 +296,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         return splitLine;
     }
 
-    function processCSV(file){
+    FCUtil.processCSV = (file) => {
         const iterator = file.lines.iterator();
 
         let keys = [];
@@ -237,6 +322,5 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         return csvObjArray;
     }
 
-    exports.execute = execute;
-    return exports;
+    return FCUtil;
 });
