@@ -1,11 +1,12 @@
-define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
-    function (search, file, format, runtime, log) {
+define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
+    function (search, file, format, runtime, record, log) {
 
     /**
      * @requires N/search
      * @requires N/file
      * @requires N/format
      * @requires N/runtime
+     * @requires N/record
      * @requires N/log
      *
      * @NModuleScope Public
@@ -43,9 +44,11 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         // ACBM, LLC - CEO : 1022
         // ACBM, LLC - Sales Manager : 1027
         // ACBM, LLC - Sales Representative : 1028
-        return ( user.role === 1022
+        return ( 
+            user.role === 1022
             || user.role === 1027 
-            || user.role === 1028);
+            || user.role === 1028
+        );
     };
 
     FCUtil.fulfillmentView = () => {
@@ -98,9 +101,18 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         return twelveMonths;
     };
 
-    FCUtil.defaultStart = (start) => {
+    FCUtil.defaultStart = (start, fullyear) => {
         const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
-        return new Date(date.getFullYear(), date.getMonth(), 1);
+        return (fullyear)
+            ? new Date(date.getFullYear(), 0, 1)
+            : new Date(date.getFullYear(), date.getMonth(), 1);
+    }
+
+    FCUtil.defaultEnd = (end, fullyear) => {
+        const date = (end) ? new Date(end.substring(0, end.indexOf('00:00:00'))) : new Date();
+        return (fullyear)  
+            ? new Date(date.getFullYear(), 11, 31)
+            : new Date(date.getFullYear(), date.getMonth() + 1, 0);
     }
 
     FCUtil.getRepName = (id) => {
@@ -170,8 +182,8 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         return results;
     }
 
-    FCUtil.searchFilter = (transactionType, month, year) => {
-        let searchFilter = [];
+    FCUtil.searchFilter = (transactionSearchType, month, year) => {
+        const searchFilter = [];
 
         const subsFilter = search.createFilter({
             name: 'subsidiary',
@@ -179,16 +191,16 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
             values: '2'
         });
         searchFilter.push(subsFilter);
-        if (transactionType) {
-            const typeFilter = seach.createFilter({
+        if (transactionSearchType) {
+            const typeFilter = search.createFilter({
                 name: 'type',
                 operator: search.Operator.ANYOF,
-                values: typesDictionary[transactionType].searchFilter
+                values: transactionSearchType
             });
             searchFilter.push(typeFilter);
         }
 
-        if (transactionType === 'opportunity') {
+        if (transactionSearchType === 'Opprtnty') {
             const discussionFilter = search.createFilter({
                 name: 'entitystatus',
                 operator: search.Operator.ANYOF,
@@ -197,7 +209,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
             searchFilter.push(discussionFilter);
         }
 
-        if (transactionType === 'estimate') {
+        if (transactionSearchType === 'Estimate') {
             const statusFilter = search.createFilter({
                 name: 'formulatext',
                 operator: search.Operator.IS,
@@ -207,7 +219,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
             searchFilter.push(statusFilter);
         }
         
-        if (transactionType === 'salesorder') {
+        if (transactionSearchType === 'SalesOrd') {
             const cancelledFilter = search.createFilter({
                 name: 'custcolcancelled_line',
                 operator: search.Operator.ISNOT,

@@ -1,14 +1,10 @@
 define([
-    "N/search",
     "N/task",
-    "N/file",
     "N/format",
-    "N/record",
     "N/ui/serverWidget",
-    "N/runtime",
     "N/log",
     "./FCUtil"
-], function (s, task, file, format, record, ui, runtime, log, FCUtil) {
+], function (task, format, ui, log, FCUtil) {
 
     /**
      * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
@@ -18,14 +14,9 @@ define([
      * @copyright AC Business Media
      * @author Ashe B Exum <abexum@gmail.com>
      *
-     * @requires N/search
      * @requires N/task
-     * @requires N/file
-     * @requires N/format
-     * @requires N/record
      * @requires N/format
      * @requires N/ui/serverWidget
-     * @requires N/runtime
      * @requires N/log
      *
      * @NApiVersion 2.1
@@ -36,8 +27,6 @@ define([
 
     /**
      * <code>onRequest</code> event handler
-     *
-     * @governance 0
      *
      * @param context
      *        {Object}
@@ -116,48 +105,9 @@ define([
         // all whole numbers in the grid, no decimals
     ];
 
-    // move to util (admin view)
-    const adminView = () => {
-        const user = runtime.getCurrentUser();
-        // roles...
-        // administrator : 3
-        // CFO : 41
-        // A/P analyst : 1019
-        // CEO : 1020
-        // A/R analyst : 1022
-        // financial analyst : 1026
-        // CSV Integrator : 1037
-        return (
-            user.role === 3
-            || user.role === 41
-            || user.role === 1019
-            || user.role === 1020
-            || user.role === 1022
-            || user.role === 1026
-            || user.role === 1037
-        );
-    };
-    // end move to util
-
     const results = [];
     const abreviatedMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const totalsCol = {};
-
-    // move to util
-    const dateIndex = (filter) => {
-        const twelveMonths = [];
-        for (let i = 0; i < 12; i++) {
-            let colDate = new Date(filter.startdate.getFullYear(), filter.startdate.getMonth() + i, 1);
-            monthIndex = colDate.getMonth();
-            year = colDate.getFullYear();
-            twelveMonths.push({
-                month: monthIndex,
-                year: year
-            });
-        }
-        return twelveMonths;
-    };
-    // end move to util
 
     const dateFields = (filter) => {
         const fieldObjs = [];
@@ -371,7 +321,6 @@ define([
         return list;
     }
 
-    // move to util
     function buildSalesReps(field, selected) {
         FCUtil.getSalesReps(field, selected).forEach((res, index) => {
             let repName = res.getValue({name: 'entityid'});
@@ -396,52 +345,6 @@ define([
         });
     }
 
-    //     field.addSelectOption({
-    //         value: 0,
-    //         text: '-- All --',
-    //         isSelected: false
-    //     });
-
-    //     let index = 0;
-    //     s.create({
-    //         type: s.Type.EMPLOYEE,
-    //         columns: ['entityid', 'issalesrep'],
-    //         filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
-    //             ['isinactive', s.Operator.IS, ['F']]
-    //         ]
-    //     }).run().each(res => {
-    //         if (res.getValue({name: 'issalesrep'})){
-    //             field.addSelectOption({
-    //                 value: res.id,
-    //                 text: res.getValue({name: 'entityid'}),
-    //                 isSelected: (res.id === selected)
-    //             });
-    //             let repName = res.getValue({name: 'entityid'});
-
-    //             groupType.salesrep.values.push({
-    //                 id: res.id,
-    //                 sublistEntry: {
-    //                     id: 'custpage_salesrep_name',
-    //                     line: index,
-    //                     value: repName
-    //                 }
-    //             });
-    //             repNameIndex[repName] = res.id;
-    //             index++;
-    //         }
-    //         return true;
-    //     });
-    //     // make util return result array and do this values build post util call
-    //     groupType.salesrep.values.push({
-    //         id: 'total',
-    //         sublistEntry: {
-    //             id: 'custpage_salesrep_name',
-    //             line: index,
-    //             value: 'TOTAL'
-    //         }
-    //     });
-    // }
-
     function buildProperties(field, selected) {
         FCUtil.getProperties(field, selected).forEach((res, index) => {
             let propertyName = res.getValue({name: 'name'});
@@ -465,51 +368,6 @@ define([
             }
         });
     }
-
-    //     field.addSelectOption({
-    //         value: 0,
-    //         text: '-- All --',
-    //         isSelected: false
-    //     });
-
-    //     let index = 0;
-    //     s.create({
-    //         type: s.Type.CLASSIFICATION,
-    //         columns: ['name'],
-    //         filters: [
-    //             ['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
-    //             ['isinactive', s.Operator.IS, ['F']]
-    //         ]
-    //     }).run().each(res => {
-    //         field.addSelectOption({
-    //             value: res.id,
-    //             text: res.getValue({name: 'name'}),
-    //             isSelected: (res.id === selected)
-    //         });
-    //         let propertyName = res.getValue({name: 'name'});
-    //         groupType.class.values.push({
-    //             id: res.id,
-    //             sublistEntry: {
-    //                 id: 'custpage_class_name',
-    //                 line: index,
-    //                 value: propertyName
-    //             }
-    //         });
-    //         propertyNameIndex[propertyName] = res.id;
-    //         index++;
-    //         return true;
-    //     });
-    //     // make util return result array and do this values build post util call
-    //     groupType.class.values.push({
-    //         id: 'total',
-    //         sublistEntry: {
-    //             id: 'custpage_class_name',
-    //             line: index,
-    //             value: 'TOTAL'
-    //         }
-    //     });
-    // }
-    // end move to util
 
     function getResults(calcsCSV, month, year, filter) {
         const { displayvalue, property, salesrep } = filter;
@@ -657,91 +515,6 @@ define([
         });
         return entries;
     }
-
-    // move to util
-    function defaultStart(start) {
-        const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
-        return new Date(date.getFullYear(), date.getMonth(), 1);
-    }
-
-    const getRepName = (id) => {
-        if (!id || id === '0') return '';
-        const employeeRecord = record.load({type: record.Type.EMPLOYEE, id: id});
-        return employeeRecord.getValue({fieldId: 'entityid'});
-    }
-
-    const getPropertyName = (id) => {
-        if (!id || id === '0') return '';
-        const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
-        return propertyRecord.getValue({fieldId: 'name'});
-    }
-
-    function grabFile(filename) {
-        var csvFile = '';
-
-        try {
-            csvFile = file.load({
-                id: './'+filename
-            });
-        } catch(err) {
-            if (err.name == 'RCRD_DSNT_EXIST'){
-                log.audit({title: filename + 'not found, rebuilding'});
-            } else {
-                log.error({
-                    title: err.toString(),
-                    details: err.stack
-                });
-            }
-        }
-        return csvFile;
-    }
-
-    const csvSplit = (line) => {
-        let splitLine = [];
-
-        const quotesplit = line.split('"');
-        const lastindex = quotesplit.length - 1;
-        // split evens removing outside quotes, push odds
-        quotesplit.forEach((val, index) => {
-            if (index % 2 === 0) {
-                const firstchar = (index == 0) ? 0 : 1;
-                const trimmed = (index == lastindex) 
-                    ? val.substring(firstchar)
-                    : val.slice(firstchar, -1);
-                trimmed.split(",").forEach(v => splitLine.push(v));
-            } else {
-                splitLine.push(val);
-            }
-        });
-        return splitLine;
-    }
-
-    function processCSV(file){
-        const iterator = file.lines.iterator();
-
-        let keys = [];
-        let key = '';
-        let csvObjArray = [];
-
-        // add header as object keys
-        iterator.each(line =>{
-            const header = line.value.toLowerCase().replace(/\s/g, '')
-            keys = csvSplit(header);
-            return false;
-        });
-        iterator.each(line => {
-            const values = csvSplit(line.value);
-            let lineobj = {};
-            values.forEach((val, index) => {
-                key = keys[index];
-                if (key) lineobj[key] = val;
-            });
-            csvObjArray.push(lineobj);
-            return true;
-        });
-        return csvObjArray;
-    }
-    // end move to util
 
     exports.onRequest = onRequest;
     return exports;
