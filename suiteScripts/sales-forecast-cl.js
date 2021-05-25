@@ -1,4 +1,4 @@
-define(['N/currentRecord', 'N/record'], function(cr, record) {
+define(['N/currentRecord', 'N/record', './FCUpdate'], function(cr, record, FCUpdate) {
 
     /**
      * Client Script to perform search and save values in forecast suitelet
@@ -22,18 +22,25 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         window.onbeforeunload = null;
         const lines = page.getLineCount({sublistId: 'custpage_salesorder'});
         for (var i = 0; i < lines; i++) {
-            var quantity = page.getSublistValue({
+            var mediaquantity = page.getSublistValue({
                 sublistId: 'custpage_salesorder',
                 fieldId: 'custcol_agency_mf_media_quantity_1',
                 line: i
             });
-            if (quantity) {
+            var quantity = page.getSublistValue({
+                sublistId: 'custpage_salesorder',
+                fieldId: 'quantity',
+                line: i
+            });
+
+            // disable any fulfilled (media quantity present) or zero quantity orders
+            if (mediaquantity || !quantity) {
                 var field = page.getSublistField({
                     sublistId: 'custpage_salesorder',
                     fieldId: 'custcol_agency_mf_media_quantity_1',
                     line: i
                 });
-                 if (field) field.isDisabled = true;
+                if (field) field.isDisabled = true;
             }
         }
     }
@@ -46,12 +53,13 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
     //         'index': index,
     //         'fieldId': value
     //          ...
-    //     }],[{...}]
-    // }],
-    // [{...}]
+    //     }, {...}, ... ]
+    // },
+    // {...}, ... ]
 
     var editlog = [];
-    var disableOnSave = [];
+    var editfields = [];
+
     function addToEditLog(sublistId, line, fieldId) {
         const id = getInternalId(sublistId, line);
         const index = page.getSublistValue({
@@ -64,9 +72,12 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             fieldId: fieldId,
             line: line
         });
+
+        // editlog for FCUpdate script on save page refresh
         const recordIndex = editlog.findIndex(function(entry) {
             return (entry.id === id);
         });
+
         if (recordIndex === -1) { // make new record entry
             const newEntry = {id: id, type: sublistIdType(sublistId), lines: [{index: index}]};
             newEntry.lines[0][fieldId] = value;
@@ -82,6 +93,28 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             } else { // add to existing line item fields
                 editlog[recordIndex].lines[lineIndex][fieldId] = value;
             }
+        }
+
+        // field edits for UI on save page refresh
+        var fieldIndex = editfields.findIndex(function(field) {
+            return (field.sublistId === sublistId
+                && field.fieldId === fieldId
+                && field.line === line
+            );
+        });
+
+        // ui components use string instead of boolean
+        var fieldValue = value;
+        if (typeof value === "boolean") fieldValue = (value) ? 'T' : 'F';
+        if (fieldIndex === -1) { // make new field entry
+            editfields.push({
+                sublistId: sublistId,
+                fieldId: fieldId,
+                line: line,
+                value: fieldValue,
+            });
+        } else { // set the new value to the field log
+            editfields[fieldIndex].value = fieldValue;
         }
     }
     function sublistIdType(sublistId) {
@@ -137,21 +170,16 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             // add to list of edited records for later save if nonzero value entered, otherwise ignore
             if (typeof value === 'number' && value > 0) {
                 addToEditLog(soListId, soline, 'custcol_agency_mf_media_quantity_1');
-                disableOnSave.push({
-                    sublistId: soListId,
-                    fieldId: 'custcol_agency_mf_media_quantity_1',
-                    line: soline
-                });
             } else {
-                // don't disable if user made it a positive value, then changed to non positive value
-                var removeIndex = disableOnSave.findIndex(function(field) {
+                // remove from save updates
+                var fieldIndex = editfields.findIndex(function(field) {
                     return (field.sublistId === soListId
                         && field.fieldId === 'custcol_agency_mf_media_quantity_1'
                         && field.line === soline
                     );
                 });
-                if (removeIndex !== -1) disableOnSave.splice(removeIndex,1);
-                // never let an update happen if not needed here
+                if (fieldIndex !== -1) editfields.splice(fieldIndex,1);
+                // remove from editlog
                 const thisIndex = page.getSublistValue({
                     sublistId: soListId,
                     fieldId: 'line',
@@ -312,33 +340,47 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         window.location.replace(filteredURL);
     }
 
-    var recordEdits = {};
-
     function save() {
         console.info('Saving Record Changes...');
         console.info(editlog);
-        disableOnSave.forEach(function(field) {
-            var fieldobj = page.getSublistField(field);
-            fieldobj.isDisabled = true;
-        });
 
-        Promise.all(editlog.map(setTransactionRecordValues));
+        const filteredURL = new URL(document.location.href);
+
+        // make the updatelog record for the update scheduled script, pass id as url param to the server suitlet
+        if (editlog.length) {
+            const updatelogid = buildUpdateLog();
+            console.info('updatelog id : ' + updatelogid);
+            filteredURL.searchParams.set('updatelogid', updatelogid);
+        }
 
         if (predictionsUpdated) {
             const worstcase = page.getValue({fieldId: 'custpage_worstcase'});
             const mostlikely = page.getValue({fieldId: 'custpage_mostlikely'});
             const upside = page.getValue({fieldId: 'custpage_upside'});
 
-            const filteredURL = new URL(document.location.href);
-
             filteredURL.searchParams.set('worstcase', worstcase);
             filteredURL.searchParams.set('mostlikely', mostlikely);
             filteredURL.searchParams.set('upside', upside);
-            window.location.replace(filteredURL);
         }
 
-        editlog = [];
-        recordEdits = {};
+        window.location.replace(filteredURL);
+    }
+
+    function buildUpdateLog() {
+        var logRecord = record.create({
+            type: 'customrecord_fcupdate_log',
+        });
+        // set values
+        logRecord.setValue('name', 'Temp_UpdateLog_sales-forecast-cl');
+        logRecord.setValue({
+            fieldId: 'custrecord_fcupdate_editlog',
+            value: JSON.stringify(editlog)
+        });
+        logRecord.setValue({
+            fieldId: 'custrecord_fcupdate_editfields',
+            value: JSON.stringify(editfields)
+        });
+        return logRecord.save();
     }
 
     function getInternalId(sublistId, line) {

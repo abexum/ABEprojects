@@ -5,9 +5,10 @@ define([
     "N/file",
     "N/format",
     "N/ui/serverWidget",
+    "N/record",
     "N/log",
     "./FCUtil"
-], function (s, url, task, file, format, ui, log, FCUtil) {
+], function (s, url, task, file, format, ui, record, log, FCUtil) {
 
     /**
      * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
@@ -22,6 +23,7 @@ define([
      * @requires N/task
      * @requires N/format
      * @requires N/ui/serverWidget
+     * @requires N/record
      * @requires N/log
      *
      * @NApiVersion 2.1
@@ -149,6 +151,7 @@ define([
     ];
 
     var runTheQuotaUpdateTask = false;
+    var editedFields = [];
 
     const repFiltered = filter => (filter.salesrep && filter.salesrep !== '0');
     const propFiltered = filter => (filter.property && filter.property !== '0');
@@ -397,7 +400,7 @@ define([
     }
 
     function getFilter(request) {
-        const { salesrep, property, startdate, enddate, fullyear } = request.parameters;
+        const { salesrep, property, startdate, enddate, fullyear, updatelogid } = request.parameters;
 
         // tool is first opened, kickoff the quota update task in preparation for a search
         if (!(salesrep || property || startdate || enddate || fullyear)) runTheQuotaUpdateTask = true;
@@ -405,6 +408,41 @@ define([
         const fy = (fullyear === 'true');
         const startValue = FCUtil.defaultStart(startdate, fy);
         const endValue = FCUtil.defaultEnd(enddate, fy);
+
+        if (updatelogid) {
+            try {
+                const updateLog = record.load({ type: 'customrecord_fcupdate_log', id: updatelogid});
+                const editLog = updateLog.getValue({ fieldId: 'custrecord_fcupdate_editlog'});
+                const editfields = updateLog.getValue({ fieldId: 'custrecord_fcupdate_editfields'});
+
+                log.audit({title: 'Starting forecastTotals update task'});
+                const updateTask = task.create({
+                    taskType: task.TaskType.SCHEDULED_SCRIPT,
+                    params: {custscript_fcupdate_editlog: editLog},
+                    scriptId: 'customscript_fcupdate'
+                });
+                const taskId = updateTask.submit();
+                log.audit({
+                    title: 'update task ID',
+                    details: taskId
+                });
+
+                editedFields = JSON.parse(editfields);
+                log.debug({ title: 'editedFields', details: JSON.stringify(editedFields)});
+                record.delete({ type: 'customrecord_fcupdate_log', id: updatelogid});
+                log.audit({
+                    title: 'Forecast Update Log deleted',
+                    details: updatelogid
+                });
+            } catch(err) {
+                // editlog record deletion should be caught, work has already been done
+                // task failures do not need to interrupt workflow
+                log.error({
+                    title: err.name,
+                    details: err.message
+                });
+            }
+        }
 
         return {
             salesrep: salesrep,
@@ -465,7 +503,15 @@ define([
         results.forEach((res, index) => {
             Object.keys(res).forEach(key => {
                 if (skip(key)) return;
-                let value = res[key]
+                let value = res[key];
+                // if field was edited update with the new value rather than one found in search
+                let fieldIndex = editedFields.findIndex(function(field) {
+                    return (field.sublistId === 'custpage_' + type
+                        && field.fieldId === key
+                        && field.line === index
+                    );
+                });
+                if (fieldIndex !== -1) value = editedFields[fieldIndex].value;
                 if (value && key !== 'recordType' && key !== 'id') {
                     if (key === 'tranid'){
                         const link = url.resolveRecord({

@@ -2,9 +2,10 @@ define([
     "N/task",
     "N/format",
     "N/ui/serverWidget",
+    "N/record",
     "N/log",
     "./FCUtil"
-], function (task, format, ui, log, FCUtil) {
+], function (task, format, ui, record, log, FCUtil) {
 
     /**
      * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
@@ -17,6 +18,7 @@ define([
      * @requires N/task
      * @requires N/format
      * @requires N/ui/serverWidget
+     * @requires N/record
      * @requires N/log
      *
      * @NApiVersion 2.1
@@ -109,32 +111,6 @@ define([
     const abreviatedMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const totalsCol = {};
 
-    const dateFields = (filter) => {
-        const fieldObjs = [];
-        const calcsCSV = FCUtil.grabFile('forecastTotals.csv');
-        FCUtil.dateIndex(filter).forEach(dateObj => {
-            let { month, year } = dateObj;
-            fieldObjs.push({ 
-                id: month + '_' + year,
-                label: abreviatedMonths[month] + ' ' + year.toString().slice(-2),
-                type: ui.FieldType.TEXT
-            });
-            if (calcsCSV) results.push(getResults(calcsCSV, month, year, filter));
-        });
-        fieldObjs.push({ 
-            id: 'custpage_total',
-            label: 'TOTAL',
-            type: ui.FieldType.TEXT,
-        });
-        if (calcsCSV) results.push(totalsCol[filter.displayvalue]);
-        log.debug({
-            title: 'results',
-            details: results
-        });
-
-        return fieldObjs;
-    };
-
     const groupType = {
         class: {
             label: 'Property',
@@ -151,7 +127,6 @@ define([
 
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
-        log.debug({title: 'request parameters', details: context.request.parameters});
 
         const filter = getFilter(context.request);
         if (FCUtil.adminView()) {
@@ -167,7 +142,7 @@ define([
                 log.audit({
                     title: 'backfill task ID',
                     details: taskId
-                });  
+                });
             } catch(err) {
                 // inqueue and in progress errors can be common
                 log.error({
@@ -197,6 +172,28 @@ define([
             pageObject: page
         });
     }
+
+    const dateFields = (filter) => {
+        const fieldObjs = [];
+        const calcsCSV = FCUtil.grabFile('forecastTotals.csv');
+        FCUtil.dateIndex(filter).forEach(dateObj => {
+            let { month, year } = dateObj;
+            fieldObjs.push({ 
+                id: month + '_' + year,
+                label: abreviatedMonths[month] + ' ' + year.toString().slice(-2),
+                type: ui.FieldType.TEXT
+            });
+            if (calcsCSV) results.push(getResults(calcsCSV, month, year, filter));
+        });
+        fieldObjs.push({ 
+            id: 'custpage_total',
+            label: 'TOTAL',
+            type: ui.FieldType.TEXT,
+        });
+        if (calcsCSV) results.push(totalsCol[filter.displayvalue]);
+
+        return fieldObjs;
+    };
 
     function filterOptionsSection(page, filter) {
         const filtergroup = page.addFieldGroup({

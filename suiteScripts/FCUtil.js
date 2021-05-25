@@ -222,8 +222,8 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
         if (transactionSearchType === 'SalesOrd') {
             const cancelledFilter = search.createFilter({
                 name: 'custcolcancelled_line',
-                operator: search.Operator.ISNOT,
-                values: true,
+                operator: search.Operator.IS,
+                values: 'F',
             });
             searchFilter.push(cancelledFilter);
         }

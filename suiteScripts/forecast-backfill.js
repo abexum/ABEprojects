@@ -136,7 +136,7 @@ define([
 
             Object.keys(typesDictionary).forEach(type => {
                 filters[type] = FCUtil.searchFilter(
-                    typesDictionary[transactionType].searchFilter,
+                    typesDictionary[type].searchFilter,
                     month,
                     year
                 );
