@@ -22,20 +22,16 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
         // ACBM, LLC - A/P analyst : 1019
         // ACBM, LLC - A/R analyst : 1020
         // ACBM, LLC - CFO : 1023
+        // ACBM, LLC - Controller : 1024
         // ACBM, LLC - Financial Analyst : 1026
-        // Dunning Director : 1032
-        // Solupay Integration : 1035
-        // CSV Integrator : 1037
         return (
             user.role === 3
             || user.role === 41
             || user.role === 1019
             || user.role === 1020
             || user.role === 1023
+            || user.role === 1024
             || user.role === 1026
-            || user.role === 1032
-            || user.role === 1035
-            || user.role === 1037
         );
     };
 
@@ -53,11 +49,9 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
 
     FCUtil.fulfillmentView = () => {
         const user = runtime.getCurrentUser();
-        // ACBM, LLC - Controller : 1024
         // ACBM, LLC - Production & Order Entry : 1034
         return (
-            user.role === 1024 
-            || user.role === 1034
+            user.role === 1034
         );
     };
 
