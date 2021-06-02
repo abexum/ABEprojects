@@ -161,19 +161,19 @@ define([
             id: 'tranid',
             label: 'Opportunities',
             fields: commonFields('Opportunity').concat(opportunityFields),
-            searchFilter: ['Opprtnty']
+            searchFilter: 'Opprtnty'
         },
         estimate: {
             id: 'tranid',
             label: 'Proposals',
             fields: commonFields('Proposal').concat(opportunityFields.slice(1)),
-            searchFilter: ['Estimate']
+            searchFilter: 'Estimate'
         },
         salesorder: {
             id: 'tranid',
             label: 'Orders',
             fields: commonFields('Order').concat(orderFields),
-            searchFilter: ['SalesOrd']
+            searchFilter: 'SalesOrd'
         },
     };
 
@@ -189,6 +189,7 @@ define([
     const fulfillmentUser = () => FCUtil.fulfillmentView();
     const salesRepUser = () => FCUtil.salesRepView();
     const adminUser = () => FCUtil.adminView();
+    const adminTask = () => FCUtil.adminTask();
 
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
@@ -205,7 +206,7 @@ define([
 
         const filter = getFilter(context.request);
         // keep quotas up to date when tool is first opened
-        if (runTheQuotaUpdateTask) refreshQuotaResults();
+        if (runTheQuotaUpdateTask && adminTask()) refreshQuotaResults();
 
         // handle new repPredictions from save event
         const repPredictions = getRepPredictions(context.request);
@@ -793,11 +794,6 @@ define([
             salesorder: salesorder,
             quota: quota
         }
-
-        log.debug({
-            title: 'updatedPredictions',
-            details: JSON.stringify(updatedPredictions)
-        })
 
         // predictions are salesrep, property and month specific for edits
         if (salesrep === '0' || property === '0' || fullyear) return;

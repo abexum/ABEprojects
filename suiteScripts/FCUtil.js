@@ -35,6 +35,14 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
         );
     };
 
+    FCUtil.adminTask = () => {
+        const user = runtime.getCurrentUser();
+        // Administrator : 3
+        return (
+            user.role === 3
+        );
+    };
+
     FCUtil.salesRepView = () => {
         const user = runtime.getCurrentUser();
         // ACBM, LLC - CEO : 1022
@@ -65,15 +73,15 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
      *  ACBM, LLC - CEO : 1022
      *  ACBM, LLC - CFO : 1023
      *  ACBM, LLC - Controller : 1024
-     *  ACBM, LLC - Employee : 1025 *
+     *  ACBM, LLC - Employee : 1025 * 
      *  ACBM, LLC - Financial Analyst : 1026
      *  ACBM, LLC - Sales Manager : 1027
      *  ACBM, LLC - Sales Representative : 1028
      *  ACBM Concur : 1030 *
-     *  Dunning Director : 1032
+     *  Dunning Director : 1032 *
      *  ACBM, LLC - Production & Order Entry : 1034
-     *  Solupay Integration : 1035
-     *  CSV Integrator : 1037
+     *  Solupay Integration : 1035 *
+     *  CSV Integrator : 1037 *
      *  ACBM, LLC - Circulation : 1039 *
      * 
      * * user roles that have read only view *

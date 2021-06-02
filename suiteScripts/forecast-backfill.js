@@ -48,19 +48,19 @@ define([
             id: 'tranid',
             label: 'Opportunities',
             fields: commonFields.concat(nonOrderFields),
-            searchFilter: ['Opprtnty']
+            searchFilter: 'Opprtnty'
         },
         estimate: {
             id: 'tranid',
             label: 'Proposals',
             fields: commonFields.concat(nonOrderFields),
-            searchFilter: ['Estimate']
+            searchFilter: 'Estimate'
         },
         salesorder: {
             id: 'tranid',
             label: 'Orders',
             fields: commonFields,
-            searchFilter: ['SalesOrd']
+            searchFilter: 'SalesOrd'
         },
     };
 

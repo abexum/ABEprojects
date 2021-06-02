@@ -57,10 +57,26 @@ function (runtime, record, log) {
             const recObj = record.load({
                 type: recEntry.type,
                 id: recEntry.id,
+                isDynamic: true,
             });
-            var probabilityUpdated = false;
+            let probabilityUpdated = false;
             log.debug({title: 'recEntry Object', details: JSON.stringify(recEntry)});
             recEntry.lines.forEach(function(line) {
+                let lineSelected = false;
+                // line.index is the 'line' item sublist field.  we need linenumber - 1
+                let lineNumber = recObj.findSublistLineWithValue({
+                    sublistId: 'item',
+                    fieldId: 'line',
+                    value: line.index
+                });
+                if (lineNumber !== -1){
+                    recObj.selectLine({
+                        sublistId: 'item',
+                        line: lineNumber
+                    });
+                    lineSelected = true;
+                }
+
                 Object.keys(line).forEach(function(fieldId) {
                     if (fieldId === 'index') return;
                     if (fieldId === 'probability' && !probabilityUpdated) {
@@ -71,32 +87,30 @@ function (runtime, record, log) {
                         });
                         probabilityUpdated = true;
                     } else if (fieldId === 'custcol_agency_mf_media_quantity_1') {
-                        var currentMediaQuantity = recObj.getSublistValue({
+                        if (!lineSelected) return;
+                        var currentMediaQuantity = recObj.getCurrentSublistValue({
                             sublistId: 'item',
-                            fieldId: 'custcol_agency_mf_media_quantity_1',
-                            line: line.index
+                            fieldId: 'custcol_agency_mf_media_quantity_1'
                         });
                         // do not update if there is an existing media quantity
                         if (currentMediaQuantity) return;
                         var mediaQuantity = line.custcol_agency_mf_media_quantity_1;
                         // update the item display
-                        recObj.setSublistValue({
+                        recObj.setCurrentSublistValue({
                             sublistId: 'item',
                             fieldId: 'custcol_agency_mf_media_quantity_1',
-                            line: line.index,
-                            value: mediaQuantity
+                            value: mediaQuantity,
+                            ignoreFieldChange: true
                         });
                         // build new media item sourced from transaction record
                         var mediaItem = record.create({type: 'customrecord_agency_mf_media'});
-                        var lineId = recObj.getSublistValue({
+                        var lineId = recObj.getCurrentSublistValue({
                             sublistId: 'item',
-                            fieldId: 'custcol_agency_mf_line_id',
-                            line: line.index
+                            fieldId: 'custcol_agency_mf_line_id'
                         });
-                        var flightEndDate = recObj.getSublistValue({
+                        var flightEndDate = recObj.getCurrentSublistValue({
                             sublistId: 'item',
                             fieldId: 'custcol_agency_mf_flight_end_date',
-                            line: line.index
                         });
                         mediaItem.setValue({
                             fieldId: 'custrecord_agency_mf_delivery_date',
@@ -119,17 +133,19 @@ function (runtime, record, log) {
                             fieldId: 'custrecord_agency_mf_fulfilled',
                             value: false
                         });
-                        var mediaId = mediaItem.save({ignoreMandatoryFields: true});
+                        var mediaId = mediaItem.save({ ignoreMandatoryFields: true });
                         log.audit('created new media item : ' + mediaId);
                     } else {
-                        recObj.setSublistValue({
+                        if (!lineSelected) return;
+                        recObj.setCurrentSublistValue({
                             sublistId: 'item',
                             fieldId: fieldId,
-                            line: line.index,
-                            value: line[fieldId]
+                            value: line[fieldId],
+                            ignoreFieldChange: true
                         });
                     }
                 });
+                if (lineSelected) recObj.commitLine({ sublistId: 'item' });
             });
             // Add safegaurds such that media items ARE NOT CREATED when this save would fail
             var recordId = recObj.save({ignoreMandatoryFields: true});

@@ -293,6 +293,7 @@ define([
             const { fieldId, index } = params;
 
             monthResults = results[index];
+            if (!monthResults) return;
             groupType[type].values.forEach(value => {
                 let display = monthResults[type]?.[value.id];
                 let thisline = value.sublistEntry.line;
