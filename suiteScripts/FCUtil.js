@@ -48,7 +48,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
         // ACBM, LLC - CEO : 1022
         // ACBM, LLC - Sales Manager : 1027
         // ACBM, LLC - Sales Representative : 1028
-        return ( 
+        return (
             user.role === 1022
             || user.role === 1027 
             || user.role === 1028

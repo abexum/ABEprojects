@@ -2,10 +2,9 @@ define([
     "N/task",
     "N/format",
     "N/ui/serverWidget",
-    "N/record",
     "N/log",
     "./FCUtil"
-], function (task, format, ui, record, log, FCUtil) {
+], function (task, format, ui, log, FCUtil) {
 
     /**
      * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
@@ -164,8 +163,10 @@ define([
         });
 
         filterOptionsSection(page, filter);
-        renderList(page, 'class', filter);
-        renderList(page,'salesrep', filter);
+
+        const fieldData = dateFields(filter);
+        renderList(page, 'class', filter, fieldData);
+        renderList(page,'salesrep', filter, fieldData);
 
 
         context.response.writePage({
@@ -253,7 +254,7 @@ define([
         }
     }
 
-    function renderList(form, type, filter) {
+    function renderList(form, type, filter, fieldData) {
 
         const list = form.addSublist({
             id: 'custpage_' + type,
@@ -310,7 +311,7 @@ define([
             return;
         }
 
-        dateFields(filter).forEach((month, index) => {
+        fieldData.forEach((month, index) => {
             list.addField(month);
 
             setValues({fieldId: month.id, index: index});
