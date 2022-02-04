@@ -1,5 +1,10 @@
-define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
-    function (s, file, format, runtime, log) {
+define([
+    "N/search",
+    "N/file",
+    "N/runtime",
+    "N/log",
+    "./FCUtil"
+], function (s, file, runtime, log, FCUtil) {
 
     /**
      * Backfill task to populate forecastTotals.csv used in Forecast Suitelets
@@ -11,7 +16,6 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
      *
      * @requires N/search
      * @requires N/file
-     * @requires N/format
      * @requires N/runtime
      * @requires N/task
      * @requires N/log
@@ -36,20 +40,6 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
      * @function execute
      */
 
-    const dateIndex = (filter) => {
-        const twelveMonths = [];
-        for (let i = 0; i < 12; i++) {
-            let colDate = new Date(filter.startdate.getFullYear(), filter.startdate.getMonth() + i, 1);
-            monthIndex = colDate.getMonth();
-            year = colDate.getFullYear();
-            twelveMonths.push({
-                month: monthIndex,
-                year: year
-            });
-        }
-        return twelveMonths;
-    };
-
     const commonFields = ['salesrep', 'class', 'amount'];
     const nonOrderFields = ['custcolforecast_inclusion', 'probability'];
 
@@ -58,19 +48,19 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
             id: 'tranid',
             label: 'Opportunities',
             fields: commonFields.concat(nonOrderFields),
-            searchFilter: ['Opprtnty']
+            searchFilter: 'Opprtnty'
         },
         estimate: {
             id: 'tranid',
             label: 'Proposals',
             fields: commonFields.concat(nonOrderFields),
-            searchFilter: ['Estimate']
+            searchFilter: 'Estimate'
         },
         salesorder: {
             id: 'tranid',
             label: 'Orders',
             fields: commonFields,
-            searchFilter: ['SalesOrd']
+            searchFilter: 'SalesOrd'
         },
     };
 
@@ -139,13 +129,17 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
             }
         };
 
-        dateIndex(filter).forEach(dateObj => {
+        FCUtil.dateIndex(filter).forEach(dateObj => {
             let { month, year } = dateObj;
             let dateStr = (month + 1)+'/1/'+year;
             let filters = {};
 
             Object.keys(typesDictionary).forEach(type => {
-                filters[type] = searchFilter(type, month, year);
+                filters[type] = FCUtil.searchFilter(
+                    typesDictionary[type].searchFilter,
+                    month,
+                    year
+                );
             });
             Object.keys(typesDictionary).forEach(type => {
                 s.create({
@@ -167,15 +161,15 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         const dateObj = new Date(date);
         const year = dateObj.getFullYear();
         const month = dateObj.getMonth();
-        return (dateIndex(filter).filter(d => (d.year === year && d.month === month)).length > 0);
+        return (FCUtil.dateIndex(filter).filter(d => (d.year === year && d.month === month)).length > 0);
     };
 
     function getQuotas(filter) {
-        const quotaCSV = grabFile('quotaResults.csv');
+        const quotaCSV = FCUtil.grabFile('quotaResults.csv');
         if (!quotaCSV) return;
         log.audit({title: 'quotaResults CSV successfully loaded'});
 
-        processCSV(quotaCSV).forEach(quotaline => {
+        FCUtil.processCSV(quotaCSV).forEach(quotaline => {
             let { date, salesrep, property, amountmonthly } = quotaline;
             if (dateInRange(filter, date)) {
                 if (!defineCalc(date, salesrep, property)) return;
@@ -184,69 +178,12 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         });
     }
 
-    function searchFilter(transactionType, month, year) {
-        let searchFilter = [];
-
-        const subsFilter = s.createFilter({
-            name: 'subsidiary',
-            operator: s.Operator.ANYOF,
-            values: '2'
-        });
-        searchFilter.push(subsFilter);
-        if (transactionType) {
-            const typeFilter = s.createFilter({
-                name: 'type',
-                operator: s.Operator.ANYOF,
-                values: typesDictionary[transactionType].searchFilter
-            });
-            searchFilter.push(typeFilter);
-        }
-
-        if (transactionType === 'opportunity') {
-            const discussionFilter = s.createFilter({
-                name: 'entitystatus',
-                operator: s.Operator.ANYOF,
-                values: '8',
-            });
-            searchFilter.push(discussionFilter);
-        }
-
-        if (transactionType === 'estimate') {
-            const statusFilter = s.createFilter({
-                name: 'formulatext',
-                operator: s.Operator.IS,
-                values: 'open',
-                formula: '{status}'
-            });
-            searchFilter.push(statusFilter);
-        }
-
-        const startdate = new Date(year, month, 1);
-        const enddate = new Date(year, month + 1, 0);
-
-        const startval = format.format({value: startdate, type: format.Type.DATE});
-        const endval = format.format({value: enddate, type: format.Type.DATE});
-        const startFilter = s.createFilter({
-            name: 'custcol_agency_mf_flight_end_date',
-            operator: s.Operator.ONORAFTER,
-            values: startval
-        });
-        const endFilter = s.createFilter({
-            name: 'custcol_agency_mf_flight_end_date',
-            operator: s.Operator.ONORBEFORE,
-            values: endval
-        });
-        searchFilter.push(startFilter, endFilter);
-
-        return searchFilter;
-    }
-
     function updateForecastTotalsCSV() {
         var csvObjs = [];
-        const totalsCSV = grabFile('forecastTotals.csv');
+        const totalsCSV = FCUtil.grabFile('forecastTotals.csv');
         if (totalsCSV) {
             log.audit({title: 'forecastTotals CSV successfully loaded'});
-            csvObjs = processCSV(totalsCSV);
+            csvObjs = FCUtil.processCSV(totalsCSV);
             const oldDataLines = [];
             // search for index of pre-existing data
             csvObjs.forEach((line, index) => {
@@ -257,7 +194,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
                 if (calcs[date][salesrep]?.[property]) {
                     Object.keys(calcs[date][salesrep][property]).forEach(key => {
                         let value = calcs[date][salesrep][property][key];
-                        if (value || value === 0) line[key] = value;
+                        if (value || value === 0) csvObjs[index][key] = value;
                     });
                     delete calcs[date][salesrep][property];
                 } else {
@@ -301,7 +238,7 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
             });
         });
 
-        const csvContent = csvString(csvObjs);
+        const csvContent = FCUtil.csvString(csvObjs);
 
         var newCSV = file.create({
             name: 'forecastTotals.csv',
@@ -310,96 +247,10 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/log"],
         });
         // file id is hard coded here (prod environment)
         newCSV.encoding = file.Encoding.UTF_8;
-        newCSV.folder = 1020;
-        
+        newCSV.folder = 4579;
+
         const fileId = newCSV.save();
         log.audit({title: 'saving forecastTotals CSV with file id: ' + fileId});
-    }
-
-    function csvString(cvsObjs) {
-        var csvArray = [];
-        var keys = [];
-        Object.keys(cvsObjs[0]).forEach(key => {
-            keys.push(key);
-        });
-        csvArray.push(keys.join(','));
-        cvsObjs.forEach(obj => {
-            var values = [];
-            Object.keys(obj).forEach(key => {
-                var value = (obj[key].toString().includes(','))
-                    ? ('\"' + obj[key] + '\"')
-                    : obj[key];
-                values.push(value);
-            });
-            csvArray.push(values.join(','));
-        });
-        return csvArray.join('\n');
-    }
-
-    function grabFile(filename) {
-        var csvFile = '';
-
-        try {
-            csvFile = file.load({
-                id: './'+filename
-            });
-        } catch(err) {
-            if (err.name == 'RCRD_DSNT_EXIST'){
-                log.audit({title: filename + 'not found, rebuilding'});
-            } else {
-                log.error({
-                    title: err.toString(),
-                    details: err.stack
-                });
-            }
-        }
-        return csvFile;
-    }
-
-    const csvSplit = (line) => {
-        let splitLine = [];
-
-        const quotesplit = line.split('"');
-        const lastindex = quotesplit.length - 1;
-        // split evens removing outside quotes, push odds
-        quotesplit.forEach((val, index) => {
-            if (index % 2 === 0) {
-                const firstchar = (index == 0) ? 0 : 1;
-                const trimmed = (index == lastindex) 
-                    ? val.substring(firstchar)
-                    : val.slice(firstchar, -1);
-                trimmed.split(",").forEach(v => splitLine.push(v));
-            } else {
-                splitLine.push(val);
-            }
-        });
-        return splitLine;
-    }
-
-    function processCSV(file){
-        const iterator = file.lines.iterator();
-
-        let keys = [];
-        let key = '';
-        let csvObjArray = [];
-
-        // add header as object keys
-        iterator.each(line =>{
-            const header = line.value.toLowerCase().replace(/\s/g, '')
-            keys = csvSplit(header);
-            return false;
-        });
-        iterator.each(line => {
-            const values = csvSplit(line.value);
-            let lineobj = {};
-            values.forEach((val, index) => {
-                key = keys[index];
-                if (key) lineobj[key] = val;
-            });
-            csvObjArray.push(lineobj);
-            return true;
-        });
-        return csvObjArray;
     }
 
     exports.execute = execute;

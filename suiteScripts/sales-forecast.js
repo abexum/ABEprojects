@@ -1,5 +1,14 @@
-define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/serverWidget", "N/runtime", "N/log"], 
-    function (s, url, task, file, format, record, ui, runtime, log) {
+define([
+    "N/search",
+    "N/url",
+    "N/task",
+    "N/file",
+    "N/format",
+    "N/ui/serverWidget",
+    "N/record",
+    "N/log",
+    "./FCUtil"
+], function (s, url, task, file, format, ui, record, log, FCUtil) {
 
     /**
      * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
@@ -12,10 +21,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
      * @requires N/search
      * @requires N/url
      * @requires N/task
-     * @requires N/record
      * @requires N/format
      * @requires N/ui/serverWidget
-     * @requires N/runtime
+     * @requires N/record
      * @requires N/log
      *
      * @NApiVersion 2.1
@@ -26,8 +34,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
     /**
      * <code>onRequest</code> event handler
-     *
-     * @governance 0
      *
      * @param context
      *        {Object}
@@ -118,6 +124,12 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.TEXT
         },
         {
+            id: 'memo',
+            //join: 'item',
+            label: 'Description',
+            type: ui.FieldType.TEXTAREA
+        },
+        {
             id: 'custcol_size',
             label: 'Size',
             type: ui.FieldType.TEXT
@@ -145,6 +157,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     ];
 
     var runTheQuotaUpdateTask = false;
+    var editedFields = [];
 
     const repFiltered = filter => (filter.salesrep && filter.salesrep !== '0');
     const propFiltered = filter => (filter.property && filter.property !== '0');
@@ -154,19 +167,19 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id: 'tranid',
             label: 'Opportunities',
             fields: commonFields('Opportunity').concat(opportunityFields),
-            searchFilter: ['Opprtnty']
+            searchFilter: 'Opprtnty'
         },
         estimate: {
             id: 'tranid',
             label: 'Proposals',
             fields: commonFields('Proposal').concat(opportunityFields.slice(1)),
-            searchFilter: ['Estimate']
+            searchFilter: 'Estimate'
         },
         salesorder: {
             id: 'tranid',
             label: 'Orders',
             fields: commonFields('Order').concat(orderFields),
-            searchFilter: ['SalesOrd']
+            searchFilter: 'SalesOrd'
         },
     };
 
@@ -179,57 +192,19 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         salesorder: 0
     };
 
-    const fulfillmentView = () => {
-        const user = runtime.getCurrentUser();
-        // roles...
-        // controller : 1024
-        // production and order entry : 1034
-        return (user.role === 1024 || user.role === 1034);
-    };
-
-    const salesRepView = () => {
-        const user = runtime.getCurrentUser();
-        // roles...
-        // CEO : 1022
-        // sales representative : 1028
-        // sales manager : 1027
-        return ( user.role === 1022
-            || user.role === 1027 
-            || user.role === 1028);
-    };
-
-    const adminView = () => {
-        const user = runtime.getCurrentUser();
-        // roles...
-        // administrator : 3
-        // CFO : 41
-        // A/P analyst : 1019
-        // A/R analyst : 1020
-        // financial analyst : 1026
-        // CSV Integrator : 1037
-        return (
-            user.role === 3
-            || user.role === 41
-            || user.role === 1019
-            || user.role === 1020
-            || user.role === 1026
-            || user.role === 1037
-        );
-    };
-
-    // other roles ACBM, LLC ...
-    // ACBM Concur : 1030
-    // circulation : 1039
-    // employee : 1025
+    const fulfillmentUser = () => FCUtil.fulfillmentView();
+    const salesRepUser = () => FCUtil.salesRepView();
+    const adminUser = () => FCUtil.adminView();
+    const adminTask = () => FCUtil.adminTask();
 
     function onRequest(context) {
         log.audit({title: 'Loading Forecast Suitelet...'});
         log.debug({title: 'request parameters', details: context.request.parameters});
 
         let displayTitle = 'Sales Order Search';
-        if (adminView()) displayTitle = 'Sales Forecast & Order Fulfillment';
-        if (fulfillmentView()) displayTitle = 'Order Fulfillment';
-        if (salesRepView()) displayTitle = 'Sales Forecast';
+        if (adminUser()) displayTitle = 'Sales Forecast & Order Fulfillment';
+        if (fulfillmentUser()) displayTitle = 'Order Fulfillment';
+        if (salesRepUser()) displayTitle = 'Sales Forecast';
 
         const page = ui.createForm({
             title: displayTitle
@@ -237,7 +212,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         const filter = getFilter(context.request);
         // keep quotas up to date when tool is first opened
-        if (runTheQuotaUpdateTask) refreshQuotaResults();
+        if (runTheQuotaUpdateTask && adminTask()) refreshQuotaResults();
 
         // handle new repPredictions from save event
         const repPredictions = getRepPredictions(context.request);
@@ -262,13 +237,13 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         // run searches that build sublists in display
         Object.keys(typesDictionary).forEach(key => {
-            if (fulfillmentView() && key !== 'salesorder') return;
+            if (fulfillmentUser() && key !== 'salesorder') return;
             renderList(page, key, displaySearch(key, filter), filter);
         });
 
         const predictionValues = getPredictionCSVtotals(filter);
 
-        if (salesRepView() || adminView()){
+        if (salesRepUser() || adminUser()){
             calcSection(page, quota);
             predictionSection(page, filter, predictionValues);
         }
@@ -291,7 +266,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.SELECT,
             container: 'custpage_filtergroup'
         });
-        getSalesReps(salesRepSearchField, filter.salesrep);
+        FCUtil.getSalesReps(salesRepSearchField, filter.salesrep);
 
         const propertySearchField = page.addField({
             id: 'custpage_property',
@@ -299,7 +274,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             type: ui.FieldType.SELECT,
             container: 'custpage_filtergroup'
         });
-        getProperties(propertySearchField, filter.property);
+        FCUtil.getProperties(propertySearchField, filter.property);
 
         const startDateField = page.addField({
             id: 'custpage_startdate',
@@ -432,14 +407,49 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     }
 
     function getFilter(request) {
-        const { salesrep, property, startdate, enddate, fullyear } = request.parameters;
+        const { salesrep, property, startdate, enddate, fullyear, updatelogid } = request.parameters;
 
         // tool is first opened, kickoff the quota update task in preparation for a search
         if (!(salesrep || property || startdate || enddate || fullyear)) runTheQuotaUpdateTask = true;
 
         const fy = (fullyear === 'true');
-        const startValue = defaultStart(startdate, fy);
-        const endValue = defaultEnd(enddate, fy);
+        const startValue = FCUtil.defaultStart(startdate, fy);
+        const endValue = FCUtil.defaultEnd(enddate, fy);
+
+        if (updatelogid) {
+            try {
+                const updateLog = record.load({ type: 'customrecord_fcupdate_log', id: updatelogid});
+                const editLog = updateLog.getValue({ fieldId: 'custrecord_fcupdate_editlog'});
+                const editfields = updateLog.getValue({ fieldId: 'custrecord_fcupdate_editfields'});
+
+                log.audit({title: 'Starting forecastTotals update task'});
+                const updateTask = task.create({
+                    taskType: task.TaskType.SCHEDULED_SCRIPT,
+                    params: {custscript_fcupdate_editlog: editLog},
+                    scriptId: 'customscript_fcupdate'
+                });
+                const taskId = updateTask.submit();
+                log.audit({
+                    title: 'update task ID',
+                    details: taskId
+                });
+
+                editedFields = JSON.parse(editfields);
+                log.debug({ title: 'editedFields', details: JSON.stringify(editedFields)});
+                record.delete({ type: 'customrecord_fcupdate_log', id: updatelogid});
+                log.audit({
+                    title: 'Forecast Update Log deleted',
+                    details: updatelogid
+                });
+            } catch(err) {
+                // editlog record deletion should be caught, work has already been done
+                // task failures do not need to interrupt workflow
+                log.error({
+                    title: err.name,
+                    details: err.message
+                });
+            }
+        }
 
         return {
             salesrep: salesrep,
@@ -482,7 +492,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
             } else if (id.id === 'line') {
                 field.updateDisplayType({displayType : ui.FieldDisplayType.HIDDEN});
-            } else if ((adminView() || fulfillmentView())
+            } else if ((adminUser() || fulfillmentUser())
                 && (type === 'salesorder' && id.id === 'custcol_agency_mf_media_quantity_1')) {
                 field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
             }
@@ -500,7 +510,15 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         results.forEach((res, index) => {
             Object.keys(res).forEach(key => {
                 if (skip(key)) return;
-                let value = res[key]
+                let value = res[key];
+                // if field was edited update with the new value rather than one found in search
+                let fieldIndex = editedFields.findIndex(function(field) {
+                    return (field.sublistId === 'custpage_' + type
+                        && field.fieldId === key
+                        && field.line === index
+                    );
+                });
+                if (fieldIndex !== -1) value = editedFields[fieldIndex].value;
                 if (value && key !== 'recordType' && key !== 'id') {
                     if (key === 'tranid'){
                         const link = url.resolveRecord({
@@ -535,16 +553,39 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function displaySearch(type, filter) {
         log.audit({title: 'Finding Transactions...'});
         let searchResults = [];
-        s.create({
-            type: s.Type.TRANSACTION,
-            filters: searchFilter(filter, type),
-            columns: typesDictionary[type].fields.map(op => op.id)
-        }).run().each(res => {
-            // update to grab only the page number
-            searchResults.push(translate(res));
-            if (searchResults.length === 300) return false;
-            return true;
-        });
+        if (!filter.fullyear) {
+            s.create({
+                type: s.Type.TRANSACTION,
+                filters: buildSearchFilter(filter, type),
+                columns: typesDictionary[type].fields.map(op => {
+                    return (op.join) 
+                        ? s.createColumn({
+                            name: op.id,
+                            join: op.join
+                        })
+                        : op.id;
+                })
+            }).run().each(res => {
+                // update to grab only the page number
+                searchResults.push(translate(res));
+                if (searchResults.length === 300) return false;
+                return true;
+            });
+        } else {
+            for (let month = 0; month < 12; month++) {
+                s.create({
+                    type: s.Type.TRANSACTION,
+                    filters: buildSearchFilter(filter, type, month),
+                    columns: typesDictionary[type].fields.map(op => op.id)
+                }).run().each(res => {
+                    // update to grab only the page number
+                    searchResults.push(translate(res));
+                    if (searchResults.length === 300) return false;
+                    return true;
+                });
+            }
+        }
+
         return searchResults;
     }
 
@@ -581,7 +622,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
 
         if (!filter.fullyear) {
             Object.keys(typesDictionary).forEach(type => {
-                filters[type] = searchFilter(filter, type);
+                filters[type] = buildSearchFilter(filter, type);
             });
             Object.keys(typesDictionary).forEach(type => {
                 s.create({
@@ -595,9 +636,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             });    
         } else {
             // run each month calc individually to avoid return overflow
-            for (month = 0; month < 12; month++) {
+            for (let month = 0; month < 12; month++) {
                 Object.keys(typesDictionary).forEach(type => {
-                    filters[type] = searchFilter(filter, type, month);
+                    filters[type] = buildSearchFilter(filter, type, month);
                 });
                 Object.keys(typesDictionary).forEach(type => {
                     s.create({
@@ -613,43 +654,14 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         }
     }
 
-    function searchFilter(filter, transactionType, month) {
-        let searchFilter = [];
-
-        const subsFilter = s.createFilter({
-            name: 'subsidiary',
-            operator: s.Operator.ANYOF,
-            values: '2'
-        });
-        searchFilter.push(subsFilter);
-        if (transactionType) {
-            const typeFilter = s.createFilter({
-                name: 'type',
-                operator: s.Operator.ANYOF,
-                values: typesDictionary[transactionType].searchFilter
-            });
-            searchFilter.push(typeFilter);
-        }
-
-        if (transactionType === 'opportunity') {
-            const discussionFilter = s.createFilter({
-                name: 'entitystatus',
-                operator: s.Operator.ANYOF,
-                values: '8',
-            });
-            searchFilter.push(discussionFilter);
-        }
-
-        if (transactionType === 'estimate') {
-            const statusFilter = s.createFilter({
-                name: 'formulatext',
-                operator: s.Operator.IS,
-                values: 'open',
-                formula: '{status}'
-            });
-            searchFilter.push(statusFilter);
-        }
-
+    function buildSearchFilter(filter, transactionType, month) {
+        if (!month && month !== 0) month = filter.startdate.getMonth();
+        const year = filter.startdate.getFullYear();
+        const monthfilter = FCUtil.searchFilter(
+            typesDictionary[transactionType].searchFilter,
+            month,
+            year
+        );
         const { salesrep, property } = filter;
         if (repFiltered(filter)) {
             const repFilter = s.createFilter({
@@ -657,7 +669,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 operator: s.Operator.ANYOF,
                 values: salesrep
             });
-            searchFilter.push(repFilter);
+            monthfilter.push(repFilter);
         }
         if (propFiltered(filter)) {
             const propertyFilter = s.createFilter({
@@ -665,93 +677,9 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
                 operator: s.Operator.ANYOF,
                 values: property
             });
-            searchFilter.push(propertyFilter);
+            monthfilter.push(propertyFilter);
         }
-
-        const startdate = (month || month === 0)
-            ? new Date(filter.startdate.getFullYear(), month, 1)
-            : filter.startdate;
-        const enddate = (month || month === 0)
-            ? new Date(filter.startdate.getFullYear(), month + 1, 0)
-            : filter.enddate;
-
-        const startval = format.format({value: startdate, type: format.Type.DATE});
-        const endval = format.format({value: enddate, type: format.Type.DATE});
-        const startFilter = s.createFilter({
-            name: 'custcol_agency_mf_flight_end_date',
-            operator: s.Operator.ONORAFTER,
-            values: startval
-        });
-        const endFilter = s.createFilter({
-            name: 'custcol_agency_mf_flight_end_date',
-            operator: s.Operator.ONORBEFORE,
-            values: endval
-        });
-        searchFilter.push(startFilter, endFilter);
-
-        return searchFilter;
-    }
-
-    function getSalesReps(field, selected) {
-        field.addSelectOption({
-            value: 0,
-            text: '-- All --',
-            isSelected: false
-        });
-
-        s.create({
-            type: s.Type.EMPLOYEE,
-            columns: ['entityid', 'issalesrep'],
-            filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
-                ['isinactive', s.Operator.IS, ['F']]
-            ]
-        }).run().each(res => {
-            if (res.getValue({name: 'issalesrep'})){
-                field.addSelectOption({
-                    value: res.id,
-                    text: res.getValue({name: 'entityid'}),
-                    isSelected: (res.id === selected)
-                });
-            }
-            return true;
-        });
-    }
-
-    function getProperties(field, selected) {
-        field.addSelectOption({
-            value: 0,
-            text: '-- All --',
-            isSelected: false
-        });
-
-        s.create({
-            type: s.Type.CLASSIFICATION,
-            columns: ['name'],
-            filters: [
-                ['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
-                ['isinactive', s.Operator.IS, ['F']]
-            ]
-        }).run().each(res => {
-            field.addSelectOption({
-                value: res.id,
-                text: res.getValue({name: 'name'}),
-                isSelected: (res.id === selected)
-            });
-            return true;
-        });
-    }
-
-    function defaultStart(start, fullyear) {
-        const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
-        return (fullyear)
-            ? new Date(date.getFullYear(), 0, 1)
-            : new Date(date.getFullYear(), date.getMonth(), 1);
-    }
-    function defaultEnd(end, fullyear) {
-        const date = (end) ? new Date(end.substring(0, end.indexOf('00:00:00'))) : new Date();
-        return (fullyear)  
-            ? new Date(date.getFullYear(), 11, 31)
-            : new Date(date.getFullYear(), date.getMonth() + 1, 0);
+        return monthfilter;
     }
 
     function translate(result) {
@@ -760,14 +688,19 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             id: result.id,
             recordType: result.recordType
         };
+
         fields.forEach(f => {
             if (f.type === ui.FieldType.TEXT) {
-                var text = result.getText({name: f.id})
+                var text = (f.join)
+                    ? result.getText({name: f.id, join: f.join})
+                    : result.getText({name: f.id});
                 row[f.id] = (f.id === 'custbody_advertiser1')
                     ? text.substring(text.indexOf(' ')+1)
                     : text;
             } else {
-                var value = result.getValue({name: f.id});
+                var value = (f.join)
+                    ? result.getValue({name: f.id, join: f.join})
+                    : result.getValue({name: f.id});
                 if (f.id === 'custcolforecast_inclusion') {
                     row[f.id] = (value) ? 'T' : 'F';
                 } else {
@@ -778,26 +711,15 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return row;
     }
 
-    const getRepName = (id) => {
-        if (!id || id === '0') return '';
-        const employeeRecord = record.load({type: record.Type.EMPLOYEE, id: id});
-        return employeeRecord.getValue({fieldId: 'entityid'});
-    }
-    const getPropertyName = (id) => {
-        if (!id || id === '0') return '';
-        const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
-        return propertyRecord.getValue({fieldId: 'name'});
-    }
-
     function getQuotaCSVtotal(filter) {
-        const quotaCSV = grabFile('quotaResults.csv');
+        const quotaCSV = FCUtil.grabFile('quotaResults.csv');
         if (!quotaCSV) {
             refreshQuotaResults();
             return 0;
         }
 
         const lessInfo = (moreInfo) => {
-            const {salesrep, property, date, amountmonthly } = moreInfo;
+            const { salesrep, property, date, amountmonthly } = moreInfo;
             const lessismore = { 
                 salesrep: salesrep,
                 property: property,
@@ -806,7 +728,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             };
             return lessismore;
         };
-        const csvObjs = processCSV(quotaCSV).map(obj => lessInfo(obj));
+        const csvObjs = FCUtil.processCSV(quotaCSV).map(obj => lessInfo(obj));
 
         const quotas = filterCSVlines(csvObjs, filter);
 
@@ -817,10 +739,10 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     }
 
     function getPredictionCSVtotals(filter) {
-        const repFilterCSV = grabFile('forecastTotals.csv');
+        const repFilterCSV = FCUtil.grabFile('forecastTotals.csv');
         if (!repFilterCSV) return {worstcase: '', mostlikely: '', upside: '', lastupdate: ''};
 
-        const csvObjs = processCSV(repFilterCSV);
+        const csvObjs = FCUtil.processCSV(repFilterCSV);
         const filteredLines = filterCSVlines(csvObjs, filter);
 
         const worstcase = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.worstcase), 0);
@@ -842,8 +764,8 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
     function filterCSVlines(csvObjs, filter) {
         let filtered = [];
         const { salesrep, property } = filter;
-        const repName = getRepName(salesrep);
-        const propertyName = getPropertyName(property);
+        const repName = FCUtil.getRepName(salesrep);
+        const propertyName = FCUtil.getPropertyName(property);
         const month = filter.startdate.getMonth();
         const year = filter.startdate.getFullYear();
 
@@ -862,77 +784,12 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         return filtered;
     }
 
-    function grabFile(filename) {
-        var csvFile = '';
-        
-        try {
-            csvFile = file.load({
-                id: './'+filename
-            });
-        } catch(err) {
-            if (err.name == 'RCRD_DSNT_EXIST'){
-                log.audit({title: filename + 'not found, rebuilding'});
-            } else {
-                log.error({
-                    title: err.toString(),
-                    details: err.stack
-                });
-            }
-        }
-        return csvFile;
-    }
-
-    const csvSplit = (line) => {
-        let splitLine = [];
-
-        const quotesplit = line.split('"');
-        const lastindex = quotesplit.length - 1;
-        // split evens removing outside quotes, push odds
-        quotesplit.forEach((val, index) => {
-            if (index % 2 === 0) {
-                const firstchar = (index == 0) ? 0 : 1;
-                const trimmed = (index == lastindex) 
-                    ? val.substring(firstchar)
-                    : val.slice(firstchar, -1);
-                trimmed.split(",").forEach(v => splitLine.push(v));
-            } else {
-                splitLine.push(val);
-            }
-        });
-        return splitLine;
-    }
-    function processCSV(file){
-        const iterator = file.lines.iterator();
-
-        let keys = [];
-        let key = '';
-        let csvObjArray = [];
-        
-        // add header as object keys
-        iterator.each(line =>{
-            const header = line.value.toLowerCase().replace(/\s/g, '')
-            keys = csvSplit(header);
-            return false;
-        });
-        iterator.each(line => {
-            const values = csvSplit(line.value);
-            let lineobj = {};
-            values.forEach((val, index) => {
-                key = keys[index];
-                if (key) lineobj[key] = val;
-            });
-            csvObjArray.push(lineobj);
-            return true;
-        });
-        return csvObjArray;
-    }
-
     function updateCSV(filter, repPredictions, quota) {
         const { salesrep, property, startdate, fullyear } = filter;
         const { worstcase, mostlikely, upside } = repPredictions;
 
-        const repName = getRepName(salesrep);
-        const propertyName = getPropertyName(property);
+        const repName = FCUtil.getRepName(salesrep);
+        const propertyName = FCUtil.getPropertyName(property);
         const month = startdate.getMonth();
         const year = startdate.getFullYear();
         const lastupdate = new Date();
@@ -956,22 +813,17 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             quota: quota
         }
 
-        log.debug({
-            title: 'updatedPredictions',
-            details: JSON.stringify(updatedPredictions)
-        })
-
         // predictions are salesrep, property and month specific for edits
         if (salesrep === '0' || property === '0' || fullyear) return;
 
-        const predictionCSV = grabFile('forecastTotals.csv');
+        const predictionCSV = FCUtil.grabFile('forecastTotals.csv');
 
         var foundindex = -1;
         var csvObjs = [];
 
         if (predictionCSV) {
             log.audit({title: 'forecastTotals CSV successfully loaded'});
-            csvObjs = processCSV(predictionCSV);
+            csvObjs = FCUtil.processCSV(predictionCSV);
     
             // search for index of pre-existing data
             foundindex = csvObjs.findIndex(line => {
@@ -995,7 +847,7 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
             csvObjs.push(updatedPredictions);
         }
 
-        const csvContent = csvString(csvObjs);
+        const csvContent = FCUtil.csvString(csvObjs);
 
         var newCSV = file.create({
             name: 'forecastTotals.csv',
@@ -1008,26 +860,6 @@ define(["N/search", "N/url", "N/task", "N/file", "N/format", "N/record", "N/ui/s
         
         const fileId = newCSV.save();
         log.audit({title: 'saving new CSV with file id: ' + fileId});
-    }
-
-    function csvString(cvsObjs) {
-        var csvArray = [];
-        var keys = [];
-        Object.keys(cvsObjs[0]).forEach(key => {
-            keys.push(key);
-        });
-        csvArray.push(keys.join(','));
-        cvsObjs.forEach(obj => {
-            var values = [];
-            Object.keys(obj).forEach(key => {
-                var value = (obj[key].toString().includes(','))
-                    ? ('\"' + obj[key] + '\"')
-                    : obj[key];
-                values.push(value);
-            });
-            csvArray.push(values.join(','));
-        });
-        return csvArray.join('\n');
     }
 
     function refreshQuotaResults() {
