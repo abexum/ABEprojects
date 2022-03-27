@@ -126,7 +126,61 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
     FCUtil.getPropertyName = (id) => {
         if (!id || id === '0') return '';
         const propertyRecord = record.load({type: record.Type.CLASSIFICATION, id: id});
-        return propertyRecord.getValue({fieldId: 'name'});
+        let name = propertyRecord.getValue({fieldId: 'namenohierarchy'});
+        if (!name) name = propertyRecord.getValue({fieldId: 'name'}).split(' : ').pop();
+        return name
+    }
+
+    // TODO these functions do not work, do not use
+    FCUtil.getSalesrepId = (name) => {
+        let id = 0;
+        return id;
+        search.create({
+            type: search.Type.EMPLOYEE,
+            columns: ['entityid', 'issalesrep'],
+            filters: [['subsidiary', search.Operator.ANYOF, ['2']], 'and', 
+                ['isinactive', search.Operator.IS, ['F']], 'and',
+                ['entityid', search.Operator.ANYOF, [name]]
+            ]
+        }).run().each(res => {
+            if (res.getValue({name: 'issalesrep'})){
+                let resultName = res.getValue({name: 'entityid'})
+                
+                if (formattedName === resultName.split(' : ').pop()) {
+                    id = res.id;
+                    return false;
+                }
+            }
+            return true;
+        });
+        return id;
+    }
+    // TODO these functions do not work, do not use
+    FCUtil.getPropertyId = (name) => {
+        let id = 0;
+        return id;
+        search.create({
+            type: search.Type.CLASSIFICATION,
+            columns: ['namenohierarchy'],
+            filters: [
+                ['subsidiary', search.Operator.ANYOF, ['2']], 'and', 
+                ['isinactive', search.Operator.IS, ['F']], 'and',
+                ['custrecord_parent_property_indicator', search.Operator.IS, ['F']], 'and',
+                ['namenohierarchy', search.Operator.ANYOF, [name]]
+            ]
+        }).run().each(res => {
+            if (name === res.getValue({name: 'namenohierarchy'})) {
+                id = res.id;
+                return false;
+            }
+            return true;
+        });
+        return id;
+    }
+
+    FCUtil.formatName = (name) => {
+        if (name) return name.split(' : ').pop();
+        return ''
     }
 
     FCUtil.getSalesReps = (field, selected) => {
@@ -167,15 +221,20 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
         const results = [];
         search.create({
             type: search.Type.CLASSIFICATION,
-            columns: ['name'],
+            columns: ['namenohierarchy', 'name'],
             filters: [
                 ['subsidiary', search.Operator.ANYOF, ['2']], 'and', 
-                ['isinactive', search.Operator.IS, ['F']]
+                ['isinactive', search.Operator.IS, ['F']], 'and',
+                ['custrecord_parent_property_indicator', search.Operator.IS, ['F']]
             ]
         }).run().each(res => {
+            
+            let nameText = res.getValue({name: 'namenohierarchy'});
+            if (!nameText) nameText = res.getValue({name: 'name'}).split(' : ').pop()
+
             field.addSelectOption({
                 value: res.id,
-                text: res.getValue({name: 'name'}),
+                text: nameText,
                 isSelected: (res.id === selected)
             });
             results.push(res);
@@ -321,6 +380,10 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
         iterator.each(line =>{
             const header = line.value.toLowerCase().replace(/\s/g, '')
             keys = csvSplit(header);
+            keys.map(k => {
+                if (k.includes('(')) return k.substring(0,k.indexOf('('))
+                return k
+            });
             return false;
         });
         iterator.each(line => {
