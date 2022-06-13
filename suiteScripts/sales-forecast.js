@@ -244,7 +244,12 @@ define([
 
         if (salesRepUser() || adminUser()){
             calcSection(page, predictionValues.quota);
-            predictionSection(page, filter, predictionValues);
+
+            if (repPredictions !== null) {
+                predictionSection(page, filter, repPredictions);
+            } else {
+                predictionSection(page, filter, predictionValues);
+            }
         }
 
         context.response.writePage({
