@@ -2,9 +2,10 @@ define([
     "N/task",
     "N/format",
     "N/ui/serverWidget",
+    "N/record",
     "N/log",
     "./FCUtil"
-], function (task, format, ui, log, FCUtil) {
+], function (task, format, ui, record, log, FCUtil) {
 
     /**
      * Sales Forecast Suitelet: Improved sales rep forecaster for ACBM
@@ -322,7 +323,7 @@ define([
 
     function buildSalesReps(field, selected) {
         FCUtil.getSalesReps(field, selected).forEach((res, index) => {
-            let repName = res.getValue({name: 'entityid'});
+            let repName = FCUtil.formatName(res.getValue({name: 'entityid'}));
             groupType.salesrep.values.push({
                 id: res.id,
                 sublistEntry: {
@@ -346,7 +347,7 @@ define([
 
     function buildProperties(field, selected) {
         FCUtil.getProperties(field, selected).forEach((res, index) => {
-            let propertyName = res.getValue({name: 'name'});
+            let propertyName = res.getValue({name: 'namenohierarchy'});
             groupType.class.values.push({
                 id: res.id,
                 sublistEntry: {
@@ -367,6 +368,9 @@ define([
             }
         });
     }
+
+        // ABE TODO make util function for formatting the property name correctly
+        // quota task now uses name (no heirarchy) avoiding issue
 
     function getResults(calcsCSV, month, year, filter) {
         const { displayvalue, property, salesrep } = filter;
@@ -477,8 +481,8 @@ define([
 
         const entries = {};
         csvObjs.forEach(line => {
-            if (!propertyName || propertyName === line.property){
-                let repId = repNameIndex[line.salesrep];
+            if (!propertyName || property == line.propertyid || propertyName === line.property){
+                let repId = line.salesrepid || repNameIndex[line.salesrep];
                 let monthTotal = parseInt(line[displayvalue]);
                 if (monthTotal === 0 || monthTotal) {
                     if (!entries[repId]) entries[repId] = 0;
@@ -500,8 +504,8 @@ define([
 
         const entries = {};
         csvObjs.forEach(line => {
-            if (!repName || repName === line.salesrep){
-                let propertyId = propertyNameIndex[line.property];
+            if (!repName || salesrep == line.salesrepid || repName === line.salesrep){
+                let propertyId = line.propertyid || propertyNameIndex[line.property];
                 let monthTotal = parseInt(line[displayvalue]);
                 if (monthTotal === 0 || monthTotal) {
                     if (!entries[propertyId]) entries[propertyId] = 0;

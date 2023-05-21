@@ -52,7 +52,7 @@ function (runtime, record, log) {
     //      }, { ... } ... ]
     // }
 
-    const setTransactionRecordValues = async (recEntry) => {
+    const setTransactionRecordValues = (recEntry) => {
         try {
             const recObj = record.load({
                 type: recEntry.type,
@@ -77,7 +77,7 @@ function (runtime, record, log) {
                     lineSelected = true;
                 }
 
-                Object.keys(line).forEach(function(fieldId) {
+                Object.keys(line).forEach((fieldId) => {
                     if (fieldId === 'index') return;
                     if (fieldId === 'probability' && !probabilityUpdated) {
                         recObj.setValue({
@@ -146,6 +146,10 @@ function (runtime, record, log) {
                     }
                 });
                 if (lineSelected) recObj.commitLine({ sublistId: 'item' });
+            });
+            log.debug({
+                title: 'remaining governance before save recId: ' + recObj.id,
+                details: runtime.getCurrentScript().getRemainingUsage()
             });
             // Add safegaurds such that media items ARE NOT CREATED when this save would fail
             var recordId = recObj.save({ignoreMandatoryFields: true});

@@ -42,6 +42,8 @@ define([
 
     const commonFields = ['salesrep', 'class', 'amount'];
     const nonOrderFields = ['custcolforecast_inclusion', 'probability'];
+    let repIdMap = [];
+    let propIdMap = [];
 
     const typesDictionary = {
         opportunity: {
@@ -99,6 +101,65 @@ define([
         return 1;
     }
 
+    function addRepId(name, id) {
+        if (repIdMap.findIndex(element => element.id === id) === -1) {
+            repIdMap.push({
+                name: name,
+                id: id
+            });
+        }
+    }
+    function addPropId(name, id) {
+        if (propIdMap.findIndex(element => element.id === id) === -1) {
+            propIdMap.push({
+                name: name,
+                id: id
+            });
+        }
+    }
+
+    function getRepId(name) {
+        const index = repIdMap.findIndex(element => element.name === name)
+        if (index !== -1) return repIdMap[index].id
+        log.debug({
+            title: 'SalesRep ID not Found',
+            details: name
+        });
+        return ''
+        // do not run search, too resource intensive
+        const foundId = FCUtil.getSalesrepId(name);
+        if (foundId) addRepId(name, foundId);
+        if (foundId === 0) return ''
+        return foundId;
+    }
+    function getPropId(name) {
+        const index = propIdMap.findIndex(element => element.name === name)
+        if (index !== -1) return propIdMap[index].id
+        log.debug({
+            title: 'Property ID not Found',
+            details: name
+        });
+        return ''
+        // do not run search, too resource intensive
+        const foundId = FCUtil.getPropertyId(name);
+        if (foundId) addPropId(name, foundId);
+        if (foundId === 0) return ''
+        return foundId;
+    }
+    function getRepMapName(id) {
+        if (!id) return null;
+        const index = repIdMap.findIndex(element => element.id === id)
+        if (index === -1) return null;
+        return repIdMap[index].name;
+    }
+    function getPropMapName(id) {
+        if (!id) return null;
+        const index = propIdMap.findIndex(element => element.id === id)
+        if (index === -1) return null;
+        return propIdMap[index].name;
+    }
+
+    //ABE TODO update this to reference id instead of strings for rep and property
     function fullRecordedSearch(filter) {
         // get quota from quotaCSV
         getQuotas(filter);
@@ -106,9 +167,24 @@ define([
         // calculate these values for each rep, prop, month while searching records
         // opportunity, estimate, salesorder, weighted, gross, universal
         const incrementCalcs = (res, type, date) => {
-            const salesrep = res.getText({name: 'salesrep'});
-            const property = res.getText({name: 'class'});
+            const salesrepid = res.getValue({name: 'salesrep'});
+            const salesrep = FCUtil.formatName(res.getText({name: 'salesrep'}));
+
+            // try using getValue here to return the id for the respective field
+
+            const propertyid = res.getValue({name: 'class'});
+            const property = FCUtil.formatName(res.getText({name: 'class'}));
+
             if (!defineCalc(date, salesrep, property)) return;
+
+            // ABE TODO appending the id for now since it means we don't need to overhaul the sync with quotas
+
+            calcs[date][salesrep][property].salesrepid = salesrepid;
+            calcs[date][salesrep][property].propertyid = propertyid;
+
+            addRepId(salesrep, salesrepid);
+            addPropId(property, propertyid);
+
             const amount = res.getValue({name: 'amount'});
             const probability = res.getValue({name: 'probability'});
             const forecast = res.getValue({name: 'custcolforecast_inclusion'});
@@ -164,6 +240,13 @@ define([
         return (FCUtil.dateIndex(filter).filter(d => (d.year === year && d.month === month)).length > 0);
     };
 
+        // ABE TODO make sure you can get the quota results synced up
+        // will need to supliment this csv with id data potentially ...
+
+        // quota will not be able to have id for salerep and property
+        // cannot run search here because quota search and record retrieval not supported in suitelets
+        // must use task scheduling module with saved search for quotas and match here
+
     function getQuotas(filter) {
         const quotaCSV = FCUtil.grabFile('quotaResults.csv');
         if (!quotaCSV) return;
@@ -172,6 +255,8 @@ define([
         FCUtil.processCSV(quotaCSV).forEach(quotaline => {
             let { date, salesrep, property, amountmonthly } = quotaline;
             if (dateInRange(filter, date)) {
+                salesrep = FCUtil.formatName(salesrep);
+                property = FCUtil.formatName(property);
                 if (!defineCalc(date, salesrep, property)) return;
                 calcs[date][salesrep][property].quota = amountmonthly;
             }
@@ -187,7 +272,36 @@ define([
             const oldDataLines = [];
             // search for index of pre-existing data
             csvObjs.forEach((line, index) => {
-                let { salesrep, property, date } = line;
+                let { salesrep, property, date, salesrepid, propertyid } = line;
+
+                // --BEGIN data cleansing--
+                // supplement old data with ids
+                if (salesrepid === 0 || salesrepid === '') {
+                    csvObjs[index].salesrepid = getRepId(salesrep)
+                }
+                let propertyNoHierarchy = FCUtil.formatName(property);
+                if (propertyid === 0 || propertyid === '') {
+                    csvObjs[index].propertyid = getPropId(propertyNoHierarchy)
+                }
+                // remove any hierarchy
+                
+                if (propertyNoHierarchy !== property) {
+                    property = propertyNoHierarchy;
+                    csvObjs[index].property = property;
+                }
+                // update old names
+                let mappedRep = getRepMapName(salesrepid);
+                let mappedProp = getPropMapName(propertyid);
+                if (mappedRep && mappedRep !== salesrep) {
+                    csvObjs[index].salesrep = mappedRep;
+                    salesrep = mappedRep;
+                }
+                if (mappedProp && mappedProp !== property) {
+                    csvObjs[index].property = mappedProp;
+                    property = mappedProp;
+                }
+
+                // --BEGIN adding data found in record search
                 // check that date is in search period
                 if (!calcs[date]) return;
                 // replace old data with calcs
@@ -216,7 +330,7 @@ define([
         Object.keys(calcs).forEach(month => {
             Object.keys(calcs[month]).forEach(rep => {
                 Object.keys(calcs[month][rep]).forEach(prop => {
-                    const { weighted, gross, universal, opportunity, estimate, salesorder, quota } 
+                    const { weighted, gross, universal, opportunity, estimate, salesorder, quota, salesrepid, propertyid } 
                         = calcs[month][rep][prop];
                     csvObjs.push({
                         salesrep: rep,
@@ -232,7 +346,9 @@ define([
                         opportunity: opportunity,
                         estimate: estimate,
                         salesorder: salesorder,
-                        quota: quota
+                        quota: quota,
+                        salesrepid: salesrepid,
+                        propertyid: propertyid
                     });
                 });
             });

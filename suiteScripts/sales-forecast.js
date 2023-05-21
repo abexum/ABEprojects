@@ -124,6 +124,12 @@ define([
             type: ui.FieldType.TEXT
         },
         {
+            id: 'memo',
+            //join: 'item',
+            label: 'Description',
+            type: ui.FieldType.TEXTAREA
+        },
+        {
             id: 'custcol_size',
             label: 'Size',
             type: ui.FieldType.TEXT
@@ -226,8 +232,9 @@ define([
         filterOptionsSection(page, filter);
         // run search without display limit to get calcs
         fullSearch(filter);
-        const quota = getQuotaCSVtotal(filter);
-        if (repPredictions !== null) updateCSV(filter, repPredictions, quota);
+        // const quota = getQuotaCSVtotal(filter); // no longer used, causing issues with column name changes
+        const predictionValues = getPredictionCSVtotals(filter);
+        if (repPredictions !== null) updateCSV(filter, repPredictions, predictionValues.quota);
 
         // run searches that build sublists in display
         Object.keys(typesDictionary).forEach(key => {
@@ -235,11 +242,15 @@ define([
             renderList(page, key, displaySearch(key, filter), filter);
         });
 
-        const predictionValues = getPredictionCSVtotals(filter);
-
         if (salesRepUser() || adminUser()){
-            calcSection(page, quota);
-            predictionSection(page, filter, predictionValues);
+            calcSection(page, predictionValues.quota);
+
+            if (repPredictions !== null) {
+                predictionSection(page, filter, repPredictions, true);
+                // TODO set last update to current time
+            } else {
+                predictionSection(page, filter, predictionValues, false);
+            }
         }
 
         context.response.writePage({
@@ -352,7 +363,7 @@ define([
         bookedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
     }
 
-    function predictionSection(page, filter, predictionValues) {
+    function predictionSection(page, filter, predictionValues, manualUpdate) {
         page.addFieldGroup({
             id : 'custpage_predictiongroup',
             label : 'Sales Rep Predictions'
@@ -388,7 +399,11 @@ define([
             container: 'custpage_predictiongroup'
         });
 
-        if (predictionValues.lastupdate) lastupdateField.defaultValue = predictionValues.lastupdate;
+        if (predictionValues.lastupdate) {
+            lastupdateField.defaultValue = predictionValues.lastupdate;
+        } else if (manualUpdate) {
+            lastupdateField.defaultValue = new Date();
+        }
         lastupdateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
 
         if (!(repFiltered(filter) && propFiltered(filter) && !filter.fullyear)) {
@@ -551,7 +566,14 @@ define([
             s.create({
                 type: s.Type.TRANSACTION,
                 filters: buildSearchFilter(filter, type),
-                columns: typesDictionary[type].fields.map(op => op.id)
+                columns: typesDictionary[type].fields.map(op => {
+                    return (op.join) 
+                        ? s.createColumn({
+                            name: op.id,
+                            join: op.join
+                        })
+                        : op.id;
+                })
             }).run().each(res => {
                 // update to grab only the page number
                 searchResults.push(translate(res));
@@ -675,14 +697,21 @@ define([
             id: result.id,
             recordType: result.recordType
         };
+
         fields.forEach(f => {
             if (f.type === ui.FieldType.TEXT) {
-                var text = result.getText({name: f.id})
+                var text = (f.join)
+                    ? result.getText({name: f.id, join: f.join})
+                    : result.getText({name: f.id});
+                // removeHierachy
+                text = FCUtil.formatName(text)
                 row[f.id] = (f.id === 'custbody_advertiser1')
                     ? text.substring(text.indexOf(' ')+1)
                     : text;
             } else {
-                var value = result.getValue({name: f.id});
+                var value = (f.join)
+                    ? result.getValue({name: f.id, join: f.join})
+                    : result.getValue({name: f.id});
                 if (f.id === 'custcolforecast_inclusion') {
                     row[f.id] = (value) ? 'T' : 'F';
                 } else {
@@ -730,6 +759,7 @@ define([
         const worstcase = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.worstcase), 0);
         const mostlikely = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.mostlikely), 0);
         const upside = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.upside), 0);
+        const quota = filteredLines.reduce((total, current) => numOr0(total) + numOr0(current.quota), 0);
         const datesArray = filteredLines.map(entry => {
                 return (entry.lastupdate) ? new Date(entry.lastupdate) : null;
             }).filter(date => date !== null);
@@ -739,7 +769,8 @@ define([
             worstcase: worstcase,
             mostlikely: mostlikely,
             upside: upside,
-            lastupdate: lastupdate
+            lastupdate: lastupdate,
+            quota: quota
         }
     }
 
@@ -757,8 +788,8 @@ define([
                 const hasYear = (year == date.getFullYear());
                 const hasMonth = filter.fullyear || (month == date.getMonth());
                 if (hasMonth && hasYear) {
-                    const hasRep = !(repName && repName !== line.salesrep);
-                    const hasProperty = !(propertyName && propertyName !== line.property);
+                    const hasRep = !(repName && salesrep != line.salesrepid) || !(repName && repName !== line.salesrep);
+                    const hasProperty = (property == line.propertyid) || !property || property == 0
                     if (hasRep && hasProperty) filtered.push(line);
                 }
             }
@@ -792,7 +823,9 @@ define([
             opportunity: opportunity,
             estimate: estimate,
             salesorder: salesorder,
-            quota: quota
+            quota: quota,
+            salesrepid: salesrep,
+            propertyid: property
         }
 
         // predictions are salesrep, property and month specific for edits
@@ -814,8 +847,8 @@ define([
                     const hasYear = (year == date.getFullYear());
                     const hasMonth = (month == date.getMonth());
                     if (hasMonth && hasYear) {
-                        const hasRep = (repName == line.salesrep);
-                        const hasProperty = (propertyName == line.property);
+                        const hasRep = (salesrep == line.salesrepid) || (repName == line.salesrep);
+                        const hasProperty = (property == line.propertyid) || (propertyName == line.property);
                         if (hasRep && hasProperty) return true;
                     }
                 }
