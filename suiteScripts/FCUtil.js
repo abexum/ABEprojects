@@ -103,6 +103,20 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
         return twelveMonths;
     };
 
+    FCUtil.dateIndexFourMonth = (filter) => {
+        const fourMonths = [];
+        for (let i = 0; i < 4; i++) {
+            let colDate = new Date(filter.startdate.getFullYear(), filter.startdate.getMonth() + i, 1);
+            monthIndex = colDate.getMonth();
+            year = colDate.getFullYear();
+            fourMonths.push({
+                month: monthIndex,
+                year: year
+            });
+        }
+        return fourMonths;
+    }
+
     FCUtil.defaultStart = (start, fullyear) => {
         const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();
         return (fullyear)
@@ -405,6 +419,41 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
             return true;
         });
         return csvObjArray;
+    }
+
+    FCUtil.getFirstOfMonthNsDateFromString = (datestr) => {
+        let month = datestr.split('/')[0] - 1;
+        let year = datestr.split('/')[2];
+        let firstofmonth = new Date(year, month, 1);
+        return format.format({value: firstofmonth, type: format.Type.DATE});
+    }
+
+    FCUtil.revSearchFilter = (date, salesrep, property) => {
+        let searchFilter = [];
+
+        const dateFilter = search.createFilter({
+            name: 'custrecord_revenue_forecast_date',
+            operator: search.Operator.ON,
+            values: date
+        });
+        searchFilter.push(dateFilter);
+
+        const repFilter = search.createFilter({
+            name: 'custrecord_revenue_forecast_salesrep',
+            operator: search.Operator.ANYOF,
+            values: salesrep
+        });
+        searchFilter.push(repFilter);
+    
+
+        const propertyFilter = search.createFilter({
+            name: 'custrecord_revenue_forecast_property',
+            operator: search.Operator.ANYOF,
+            values: property
+        });
+        searchFilter.push(propertyFilter);
+
+        return searchFilter;
     }
 
     return FCUtil;
