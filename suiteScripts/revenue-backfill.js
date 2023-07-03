@@ -144,8 +144,25 @@ define([
     }
 
     function updateRecords() {
+
+        const cleanupMode = 0;
+        if (cleanupMode) {
+            s.create({
+                type: 'customrecord_revenue_forecast'
+            }).run().each(res => {
+                record.delete({type: 'customrecord_revenue_forecast', id: res.id});
+                return true;
+            });
+        }
+
         Object.keys(calcs).forEach(dat => {
             let nsDate = FCUtil.getFirstOfMonthNsDateFromString(dat);
+            log.debug({title: 'nsDATE', details: JSON.stringify(nsDate)});
+
+            let month = dat.split('/')[0] - 1;
+            let year = dat.split('/')[2];
+            let dateObj = new Date(year, month, 1);
+
             Object.keys(calcs[dat]).forEach(rep => {
                 Object.keys(calcs[dat][rep]).forEach(prop => {
 
@@ -159,10 +176,10 @@ define([
                             values: adv
                         });
                         filter.push(advertiserFilter);
-                
+
                         Object.keys(calcs[dat][rep][prop][adv]).forEach(grp => {
                             
-                            log.debug({title: 'calcs value', details: JSON.stringify(calcs[dat][rep][prop][adv][grp])});
+                            // log.debug({title: 'calcs value', details: JSON.stringify(calcs[dat][rep][prop][adv][grp])});
 
                             let totalSold = calcs[dat][rep][prop][adv][grp].sold;
                             let adName = calcs[dat][rep][prop][adv][grp].adName;
@@ -177,15 +194,19 @@ define([
 
                             let foundRecordId = null;
                             let foundTotal = null;
-                            s.create({
-                                type: 'customrecord_revenue_forecast',
-                                filters: filter,
-                                columns: ['custrecord_revenue_forecast_sold']
-                            }).run().each(res => {
-                                foundRecordId = res.id;
-                                foundTotal = res.getValue({name: 'custrecord_revenue_forecast_sold'});
-                                return false;
-                            });
+
+                            if (!cleanupMode) {
+                                s.create({
+                                    type: 'customrecord_revenue_forecast',
+                                    filters: filter,
+                                    columns: ['custrecord_revenue_forecast_sold']
+                                }).run().each(res => {
+                                    foundRecordId = res.id;
+                                    foundTotal = res.getValue({name: 'custrecord_revenue_forecast_sold'});
+                                    return false;
+                                });
+                            }
+
                             if (foundTotal === totalSold) return; // no need to update
 
                             let revRecord = (foundRecordId !== null)
@@ -193,7 +214,12 @@ define([
                                 : record.create({type: 'customrecord_revenue_forecast'});
 
                             if (foundRecordId === null) {
-                                log.debug({title: 'making new record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
+                                // log.debug({title: 'making new record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
+                                
+                                revRecord.setValue({
+                                    fieldId: 'custrecord_revenue_forecast_date',
+                                    value: dateObj
+                                });
                                 revRecord.setValue({
                                     fieldId: 'custrecord_revenue_forecast_salesrep',
                                     value: rep
@@ -202,13 +228,13 @@ define([
                                     fieldId: 'custrecord_revenue_forecast_property',
                                     value: prop
                                 });
-                                revRecord.setText({
+                                revRecord.setValue({
                                     fieldId: 'custrecord_revenue_forecast_advertiser',
-                                    value: adName
+                                    value: adv
                                 });
-                                revRecord.setText({
+                                revRecord.setValue({
                                     fieldId: 'custrecord_revenue_forecast_type',
-                                    value: grpName
+                                    value: grp
                                 });
                             } else {
                                 log.debug({title: 'updating record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
@@ -219,7 +245,7 @@ define([
                                 value: totalSold
                             });
 
-                            log.debug({title: 'saving new record', details: JSON.stringify(revRecord)});
+                            // log.debug({title: 'saving new record', details: JSON.stringify(revRecord)});
 
                             revRecord.save();
                             return;
