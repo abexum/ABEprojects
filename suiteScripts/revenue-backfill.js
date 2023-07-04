@@ -61,6 +61,7 @@ define([
     // const productGroups = ['1','2','3','4','5','6'];
 
     const salesrepList = [];
+    const propertyList = [];
     const advertiserCache = {};
 
     function execute(context) {
@@ -85,21 +86,35 @@ define([
         log.debug({title: 'productGroups', details: productGroups});
 
 
+        // add valid sales reps
         s.create({
             type: s.Type.EMPLOYEE,
-            columns: ['entityid', 'issalesrep'],
+            columns: ['issalesrep'],
             filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
                 ['isinactive', s.Operator.IS, ['F']]
             ]
         }).run().each(res => {
-            if (res.getValue({name: 'issalesrep'})){
-                salesrepList.push(res.id);
-            }
+            if (res.getValue({name: 'issalesrep'})) salesrepList.push(res.id);
+            return true;
+        });
+
+        // add valid properties
+        s.create({
+            type: s.Type.CLASSIFICATION,
+            filters: [
+                ['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
+                ['isinactive', s.Operator.IS, ['F']], 'and',
+                ['custrecord_parent_property_indicator', s.Operator.IS, ['F']]
+            ]
+        }).run().each(res => {
+            propertyList.push(res.id);
             return true;
         });
 
         fullRecordedSearch(filter);
     }
+
+
 
     function getFilter() {
         const startdate = runtime.getCurrentScript().getParameter({name: 'custscript_revbackfill_startdate'});
@@ -136,6 +151,7 @@ define([
                 log.debug({title: 'properties for client : ' + advertiser, details: properties});
     
                 properties.forEach( p => {
+                    if (!propertyList.includes(p)) return;
                     advertiserCache[advertiser][p] = {};
                     productGroups.forEach( g => {
                         advertiserCache[advertiser][p][g] = {};
@@ -147,11 +163,17 @@ define([
             calcs[date][salesrep][advertiser] = JSON.parse(JSON.stringify(advertiserCache[advertiser]));
 
         }
-        if (calcs[date][salesrep][advertiser][property] === undefined) calcs[date][salesrep][advertiser][property] = {};
+        if (calcs[date][salesrep][advertiser][property] === undefined) {
+            if (!propertyList.includes(property)) return 0;
+            calcs[date][salesrep][advertiser][property] = {};
+        }
         if (calcs[date][salesrep][advertiser][property][group] === undefined) calcs[date][salesrep][advertiser][property][group] = {};
 
         const { sold } = calcs[date][salesrep][advertiser][property][group];
         if (!sold) calcs[date][salesrep][advertiser][property][group].sold = 0;
+
+        const { noGroupSold } = calcs[date][salesrep][advertiser][property];
+        if (!noGroupSold) calcs[date][salesrep][advertiser][property].sold = 0;
 
         return 1;
     }
@@ -170,6 +192,7 @@ define([
             if (!grossnum) return;
             if (!defineCalc(date, salesrep, property, advertiser, group)) return;
 
+            calcs[date][salesrep][advertiser][property].sold += grossnum; 
             calcs[date][salesrep][advertiser][property][group].sold += grossnum;            
         };
 
@@ -229,20 +252,46 @@ define([
                     Object.keys(calcs[dat][rep][adv]).forEach(prop => {
 
                         let filter = FCUtil.revSearchFilter(nsDate, rep, prop);
-                        const advertiserFilter = s.createFilter({
+                        let advertiserFilter = s.createFilter({
                             name: 'custrecord_revenue_forecast_advertiser',
                             operator: s.Operator.ANYOF,
                             values: adv
                         });
                         filter.push(advertiserFilter);
 
+                        let totalSoldAllGroups = calcs[dat][rep][adv][prop][grp].sold;
+
+                        if (!cleanupMode) {
+
+                            let noGroupFilter = s.createFilter({
+                                name: 'custrecord_revenue_forecast_type',
+                                operator: s.Operator.ISEMPTY,
+                                values: adv
+                            });
+
+                            let allGroupsFilter = filter.concat(noGroupFilter);
+                            let allGroupsRecord = null;
+                            let allGroupsTotal = null;
+
+                            s.create({
+                                type: 'customrecord_revenue_forecast',
+                                filters: allGroupsFilter,
+                                columns: ['custrecord_revenue_forecast_sold']
+                            }).run().each(res => {
+                                allGroupsRecord = res.id;
+                                allGroupsTotal = res.getValue({name: 'custrecord_revenue_forecast_sold'});
+                                return false;
+                            });
+                        }
+
+                        // UPDATE all groups record after looping through groups
                         Object.keys(calcs[dat][rep][adv][prop]).forEach(grp => {
                             
                             // log.debug({title: 'calcs value', details: JSON.stringify(calcs[dat][rep][adv][prop][grp])});
 
                             let totalSold = calcs[dat][rep][adv][prop][grp].sold;
 
-                            const typeFilter = s.createFilter({
+                            let typeFilter = s.createFilter({
                                 name: 'custrecord_revenue_forecast_type',
                                 operator: s.Operator.ANYOF,
                                 values: grp
@@ -293,8 +342,6 @@ define([
                                     fieldId: 'custrecord_revenue_forecast_type',
                                     value: grp
                                 });
-                            } else {
-                                log.debug({title: 'updating record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
                             }
 
                             revRecord.setValue({
@@ -302,11 +349,46 @@ define([
                                 value: totalSold
                             });
 
-                            // log.debug({title: 'saving new record', details: JSON.stringify(revRecord)});
+                            // TODO optional : update overall record?
 
                             revRecord.save();
                             return;
                         });
+                    // UPDATE all groups record
+                    if (allGroupsTotal === totalSoldAllGroups) return;
+                    let revRecordAllGroups = (allGroupsRecord !== null)
+                        ? record.load({type: 'customrecord_revenue_forecast', id: allGroupsRecord})
+                        : record.create({type: 'customrecord_revenue_forecast'});
+
+                    if (allGroupsRecord === null) {
+                        // log.debug({title: 'making new record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
+                        
+                        revRecordAllGroups.setValue({
+                            fieldId: 'custrecord_revenue_forecast_date',
+                            value: dateObj
+                        });
+                        revRecordAllGroups.setValue({
+                            fieldId: 'custrecord_revenue_forecast_salesrep',
+                            value: rep
+                        });
+                        revRecordAllGroups.setValue({
+                            fieldId: 'custrecord_revenue_forecast_property',
+                            value: prop
+                        });
+                        revRecordAllGroups.setValue({
+                            fieldId: 'custrecord_revenue_forecast_advertiser',
+                            value: adv
+                        });
+                    }
+
+                    revRecordAllGroups.setValue({
+                        fieldId: 'custrecord_revenue_forecast_sold',
+                        value: totalSoldAllGroups
+                    });
+
+                    revRecordAllGroups.save();
+                    return;
+
                     });
                 });
             });
