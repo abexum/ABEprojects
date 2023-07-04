@@ -58,6 +58,10 @@ define([
     };
 
     const productGroups = [];
+    // const productGroups = ['1','2','3','4','5','6'];
+
+    const salesrepList = [];
+    const advertiserCache = {};
 
     function execute(context) {
         log.audit({title: 'Running Revenue Forecast Backfill...'});
@@ -80,6 +84,20 @@ define([
         });
         log.debug({title: 'productGroups', details: productGroups});
 
+
+        s.create({
+            type: s.Type.EMPLOYEE,
+            columns: ['entityid', 'issalesrep'],
+            filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
+                ['isinactive', s.Operator.IS, ['F']]
+            ]
+        }).run().each(res => {
+            if (res.getValue({name: 'issalesrep'})){
+                salesrepList.push(res.id);
+            }
+            return true;
+        });
+
         fullRecordedSearch(filter);
     }
 
@@ -97,29 +115,36 @@ define([
         if (!salesrep || !property || !advertiser || !group) return 0;
         if (calcs[date] === undefined) calcs[date] = {};
         if (calcs[date][salesrep] === undefined) {
-            let employeeRec = record.load({ type: record.Type.EMPLOYEE, id: salesrep});
-            if (employeeRec.getValue({ fieldId: 'isinactive'}) == 'T') return 0;
-            if (employeeRec.getValue({ fieldId: 'subsidiary'}) != '2') return 0;
-            if (employeeRec.getValue({ fieldId: 'issalesrep'}) != 'T') return 0;
+            log.debug({title: 'checking employee record : ' + salesrep});
+            // let employeeRec = record.load({ type: record.Type.EMPLOYEE, id: salesrep});
+            // if (employeeRec.getValue({ fieldId: 'isinactive'}) == 'T') return 0;
+            // if (employeeRec.getValue({ fieldId: 'subsidiary'}) != '2') return 0;
+            // if (employeeRec.getValue({ fieldId: 'issalesrep'}) != 'T') return 0;
+            if (!salesrepList.includes(salesrep)) return 0;
             calcs[date][salesrep] = {};
         }
         if (calcs[date][salesrep][advertiser] === undefined) {
             // TODO
             // optional...  needs info : define a search of clients that have the given salesreps [salesrep]
 
-            calcs[date][salesrep][advertiser] = {};
-            let advRecord = record.load({type: record.Type.CUSTOMER, id: advertiser});
-            // properties are on the client record in multi-value field [custentity4]
-            let properties = advRecord.getValue({fieldId: 'custentity4'});
-            log.debug({title: 'properties for client : ' + advertiser, details: properties});
-
-            properties.forEach( p => {
-                calcs[date][salesrep][advertiser][p] = {};
-                productGroups.forEach( g => {
-                    calcs[date][salesrep][advertiser][p][g] = {};
-                    calcs[date][salesrep][advertiser][p][g].sold = 0;
+            if (advertiserCache[advertiser] === undefined) {
+                log.debug({title: 'loading client record : ' + advertiser});
+                advertiserCache[advertiser] = {};
+                let advRecord = record.load({type: record.Type.CUSTOMER, id: advertiser});
+                // properties are on the client record in multi-value field [custentity4]
+                let properties = advRecord.getValue({fieldId: 'custentity4'});
+                log.debug({title: 'properties for client : ' + advertiser, details: properties});
+    
+                properties.forEach( p => {
+                    advertiserCache[advertiser][p] = {};
+                    productGroups.forEach( g => {
+                        advertiserCache[advertiser][p][g] = {};
+                        advertiserCache[advertiser][p][g].sold = 0;
+                    });
                 });
-            });
+            }
+
+            calcs[date][salesrep][advertiser] = JSON.parse(JSON.stringify(advertiserCache[advertiser]));
 
         }
         if (calcs[date][salesrep][advertiser][property] === undefined) calcs[date][salesrep][advertiser][property] = {};
