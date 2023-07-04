@@ -57,10 +57,29 @@ define([
         },
     };
 
+    const productGroups = [];
+
     function execute(context) {
         log.audit({title: 'Running Revenue Forecast Backfill...'});
 
         const filter = getFilter(context.request);
+
+        let groupListRecord = record.load({type: 'customlist', id: 703});
+
+        const dupedRecord = JSON.parse(JSON.stringify(groupListRecord));
+        log.debug({title: 'product group custom list record', details: JSON.stringify(dupedRecord.sublists.customvalue)});
+        //groupListRecord.sublists.customvalue
+        Object.keys(dupedRecord.sublists.customvalue).forEach(key => {
+            if (dupedRecord.sublists.customvalue[key].isinactive == 'F') {
+                log.debug({
+                    title: 'search result col name in custom list', 
+                    details: dupedRecord.sublists.customvalue[key].value
+                });
+                productGroups.push(dupedRecord.sublists.customvalue[key].valueid);
+            }
+        });
+        log.debug({title: 'productGroups', details: productGroups});
+
         fullRecordedSearch(filter);
     }
 
@@ -74,27 +93,47 @@ define([
     }
 
     const calcs = {};
-    const defineCalc = (date, salesrep, property, advertiser, group, adText, grpText) => {
+    const defineCalc = (date, salesrep, property, advertiser, group) => {
         if (!salesrep || !property || !advertiser || !group) return 0;
         if (calcs[date] === undefined) calcs[date] = {};
-        if (calcs[date][salesrep] === undefined) calcs[date][salesrep] = {};
-        if (calcs[date][salesrep][property] === undefined) calcs[date][salesrep][property] = {};
-        if (calcs[date][salesrep][property][advertiser] === undefined) calcs[date][salesrep][property][advertiser] = {};
-        if (calcs[date][salesrep][property][advertiser][group] === undefined) calcs[date][salesrep][property][advertiser][group] = {};
+        if (calcs[date][salesrep] === undefined) {
+            let employeeRec = record.load({ type: record.Type.EMPLOYEE, id: salesrep});
+            if (employeeRec.getValue({ fieldId: 'isinactive'}) == 'T') return 0;
+            if (employeeRec.getValue({ fieldId: 'subsidiary'}) != '2') return 0;
+            if (employeeRec.getValue({ fieldId: 'issalesrep'}) != 'T') return 0;
+            calcs[date][salesrep] = {};
+        }
+        if (calcs[date][salesrep][advertiser] === undefined) {
+            // TODO
+            // optional...  needs info : define a search of clients that have the given salesreps [salesrep]
 
-        const { grpName, adName, sold } = calcs[date][salesrep][property][advertiser][group];
-        if (!grpName) calcs[date][salesrep][property][advertiser][group].group = grpText;
-        if (!adName) calcs[date][salesrep][property][advertiser][group].advertiser = adText;
-        if (!sold) calcs[date][salesrep][property][advertiser][group].sold = 0;
+            calcs[date][salesrep][advertiser] = {};
+            let advRecord = record.load({type: record.Type.CUSTOMER, id: advertiser});
+            // properties are on the client record in multi-value field [custentity4]
+            let properties = advRecord.getValue({fieldId: 'custentity4'});
+            log.debug({title: 'properties for client : ' + advertiser, details: properties});
+
+            properties.forEach( p => {
+                calcs[date][salesrep][advertiser][p] = {};
+                productGroups.forEach( g => {
+                    calcs[date][salesrep][advertiser][p][g] = {};
+                    calcs[date][salesrep][advertiser][p][g].sold = 0;
+                });
+            });
+
+        }
+        if (calcs[date][salesrep][advertiser][property] === undefined) calcs[date][salesrep][advertiser][property] = {};
+        if (calcs[date][salesrep][advertiser][property][group] === undefined) calcs[date][salesrep][advertiser][property][group] = {};
+
+        const { sold } = calcs[date][salesrep][advertiser][property][group];
+        if (!sold) calcs[date][salesrep][advertiser][property][group].sold = 0;
 
         return 1;
     }
 
-    //ABE TODO update this to reference id instead of strings for rep and property
     function fullRecordedSearch(filter) {
         log.debug({title: 'full record search...'});
-        // calculate these values for each rep, prop, month while searching records
-        // opportunity, estimate, salesorder, weighted, gross, universal
+        
         const incrementCalcs = (res, date) => {
             let salesrep = res.getValue({name: 'salesrep'});
             let property = res.getValue({name: 'class'});
@@ -102,14 +141,11 @@ define([
             let group = res.getValue({name: 'custitem_product_group', join: 'item'});
             let amount = res.getValue({name: 'amount'});
             let grossnum = parseFloat(amount);
-            let advertiserText =  res.getText({name: 'custbody_advertiser1'});
-            let adName = advertiserText.substring(advertiserText.indexOf(' ')+1);
-            let groupText =res.getText({name: 'custitem_product_group', join: 'item'});
 
             if (!grossnum) return;
-            if (!defineCalc(date, salesrep, property, advertiser, group, adName, groupText)) return;
+            if (!defineCalc(date, salesrep, property, advertiser, group)) return;
 
-            calcs[date][salesrep][property][advertiser][group].sold += grossnum;            
+            calcs[date][salesrep][advertiser][property][group].sold += grossnum;            
         };
 
         FCUtil.dateIndexFourMonth(filter).forEach(dateObj => {
@@ -164,12 +200,10 @@ define([
             let dateObj = new Date(year, month, 1);
 
             Object.keys(calcs[dat]).forEach(rep => {
-                Object.keys(calcs[dat][rep]).forEach(prop => {
+                Object.keys(calcs[dat][rep]).forEach(adv => {
+                    Object.keys(calcs[dat][rep][adv]).forEach(prop => {
 
-                    let filter = FCUtil.revSearchFilter(nsDate, rep, prop);
-
-                    Object.keys(calcs[dat][rep][prop]).forEach(adv => {
-
+                        let filter = FCUtil.revSearchFilter(nsDate, rep, prop);
                         const advertiserFilter = s.createFilter({
                             name: 'custrecord_revenue_forecast_advertiser',
                             operator: s.Operator.ANYOF,
@@ -177,13 +211,11 @@ define([
                         });
                         filter.push(advertiserFilter);
 
-                        Object.keys(calcs[dat][rep][prop][adv]).forEach(grp => {
+                        Object.keys(calcs[dat][rep][adv][prop]).forEach(grp => {
                             
-                            // log.debug({title: 'calcs value', details: JSON.stringify(calcs[dat][rep][prop][adv][grp])});
+                            // log.debug({title: 'calcs value', details: JSON.stringify(calcs[dat][rep][adv][prop][grp])});
 
-                            let totalSold = calcs[dat][rep][prop][adv][grp].sold;
-                            let adName = calcs[dat][rep][prop][adv][grp].adName;
-                            let grpName = calcs[dat][rep][prop][adv][grp].grpName;
+                            let totalSold = calcs[dat][rep][adv][prop][grp].sold;
 
                             const typeFilter = s.createFilter({
                                 name: 'custrecord_revenue_forecast_type',
