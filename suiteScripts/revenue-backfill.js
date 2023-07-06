@@ -58,7 +58,6 @@ define([
     };
 
     const productGroups = [];
-    // const productGroups = ['1','2','3','4','5','6'];
 
     const salesrepList = [];
     const propertyList = [];
@@ -69,23 +68,6 @@ define([
 
         const filter = getFilter(context.request);
 
-        let groupListRecord = record.load({type: 'customlist', id: 703});
-
-        const dupedRecord = JSON.parse(JSON.stringify(groupListRecord));
-        log.debug({title: 'product group custom list record', details: JSON.stringify(dupedRecord.sublists.customvalue)});
-        //groupListRecord.sublists.customvalue
-        Object.keys(dupedRecord.sublists.customvalue).forEach(key => {
-            if (dupedRecord.sublists.customvalue[key].isinactive == 'F') {
-                log.debug({
-                    title: 'search result col name in custom list', 
-                    details: dupedRecord.sublists.customvalue[key].value
-                });
-                productGroups.push(dupedRecord.sublists.customvalue[key].valueid);
-            }
-        });
-        log.debug({title: 'productGroups', details: productGroups});
-
-
         // add valid sales reps
         s.create({
             type: s.Type.EMPLOYEE,
@@ -94,6 +76,7 @@ define([
                 ['isinactive', s.Operator.IS, ['F']]
             ]
         }).run().each(res => {
+            if (res.id == 46725) return; // skip sales admin
             if (res.getValue({name: 'issalesrep'})) salesrepList.push(res.id);
             return true;
         });
@@ -110,6 +93,40 @@ define([
             propertyList.push(res.id);
             return true;
         });
+
+        var count = 0;
+        // TODO recommended : pre-populate the advertiser cache to save on governance
+        //salesrepList.forEach(sr => {
+            s.create({
+                type: s.Type.CUSTOMER,
+                columns: ['custentity4'],
+                filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and',  
+                    ['isinactive', s.Operator.IS, ['F']], 'and',
+                    ['salesrep', s.Operator.ANYOF, [salesrepList[1]]], 'and',
+                    ['custentity4', s.Operator.ANYOF, ['4']]
+                ]
+            }).run().each(res => {
+                let props = res.getValue({name: 'custentity4'});
+                log.debug({title: 'search rep : ' + salesrepList[1] + ' & prop : '  + propertyList[1]});
+                log.debug({title: 'properties found for client : ' + res.id, details: props});
+                // advertiserCache[res.id] = {};
+                // if (!props) return true;
+                // props.split(',').forEach(p =>{
+                //     if (!propertyList.includes(p)) return;
+                //     advertiserCache[res.id][p] = {}
+                //     advertiserCache[res.id][p].sold = 0;
+                // });
+                count++;
+                return true;
+            });
+        //});
+
+        const debugMode = 1;
+        if (debugMode) {
+            log.debug("total count : " + count);
+            log.debug("skip record creation, debugging");
+            return;
+        }
 
         fullRecordedSearch(filter);
     }
@@ -130,11 +147,6 @@ define([
         if (!salesrep || !property || !advertiser || !group) return 0;
         if (calcs[date] === undefined) calcs[date] = {};
         if (calcs[date][salesrep] === undefined) {
-            log.debug({title: 'checking employee record : ' + salesrep});
-            // let employeeRec = record.load({ type: record.Type.EMPLOYEE, id: salesrep});
-            // if (employeeRec.getValue({ fieldId: 'isinactive'}) == 'T') return 0;
-            // if (employeeRec.getValue({ fieldId: 'subsidiary'}) != '2') return 0;
-            // if (employeeRec.getValue({ fieldId: 'issalesrep'}) != 'T') return 0;
             if (!salesrepList.includes(salesrep)) return 0;
             calcs[date][salesrep] = {};
         }
@@ -142,25 +154,23 @@ define([
             // TODO
             // optional...  needs info : define a search of clients that have the given salesreps [salesrep]
 
-            if (advertiserCache[advertiser] === undefined) {
-                log.debug({title: 'loading client record : ' + advertiser});
-                advertiserCache[advertiser] = {};
-                let advRecord = record.load({type: record.Type.CUSTOMER, id: advertiser});
-                // properties are on the client record in multi-value field [custentity4]
-                let properties = advRecord.getValue({fieldId: 'custentity4'});
-                log.debug({title: 'properties for client : ' + advertiser, details: properties});
+            // if (advertiserCache[advertiser] === undefined) {
+            //     log.debug({title: 'loading client record : ' + advertiser});
+            //     advertiserCache[advertiser] = {};
+            //     let advRecord = record.load({type: record.Type.CUSTOMER, id: advertiser});
+            //     // properties are on the client record in multi-value field [custentity4]
+            //     let properties = advRecord.getValue({fieldId: 'custentity4'});
+            //     log.debug({title: 'properties for client : ' + advertiser, details: properties});
     
-                properties.forEach( p => {
-                    if (!propertyList.includes(p)) return;
-                    advertiserCache[advertiser][p] = {};
-                    productGroups.forEach( g => {
-                        advertiserCache[advertiser][p][g] = {};
-                        advertiserCache[advertiser][p][g].sold = 0;
-                    });
-                });
-            }
+            //     properties.forEach( p => {
+            //         if (!propertyList.includes(p)) return;
+            //         advertiserCache[advertiser][p] = {};
+            //         advertiserCache[advertiser][p].sold = 0;
+            //     });
+            // }
 
-            calcs[date][salesrep][advertiser] = JSON.parse(JSON.stringify(advertiserCache[advertiser]));
+            // calcs[date][salesrep][advertiser] = JSON.parse(JSON.stringify(advertiserCache[advertiser]));
+            calcs[date][salesrep][advertiser] = {};
 
         }
         if (calcs[date][salesrep][advertiser][property] === undefined) {
@@ -172,8 +182,8 @@ define([
         const { sold } = calcs[date][salesrep][advertiser][property][group];
         if (!sold) calcs[date][salesrep][advertiser][property][group].sold = 0;
 
-        const { noGroupSold } = calcs[date][salesrep][advertiser][property];
-        if (!noGroupSold) calcs[date][salesrep][advertiser][property].sold = 0;
+        // const { noGroupSold } = calcs[date][salesrep][advertiser][property];
+        // if (!noGroupSold) calcs[date][salesrep][advertiser][property].sold = 0;
 
         return 1;
     }
@@ -192,7 +202,12 @@ define([
             if (!grossnum) return;
             if (!defineCalc(date, salesrep, property, advertiser, group)) return;
 
-            calcs[date][salesrep][advertiser][property].sold += grossnum; 
+            /* more totals!
+            calcs[date][salesrep].sold += grossnum; 
+            calcs[date][salesrep][advertiser].sold += grossnum; 
+            */
+
+            //calcs[date][salesrep][advertiser][property].sold += grossnum; 
             calcs[date][salesrep][advertiser][property][group].sold += grossnum;            
         };
 
@@ -229,7 +244,7 @@ define([
 
     function updateRecords() {
 
-        const cleanupMode = 0;
+        const cleanupMode = 1;
         if (cleanupMode) {
             s.create({
                 type: 'customrecord_revenue_forecast'
@@ -259,34 +274,34 @@ define([
                         });
                         filter.push(advertiserFilter);
 
-                        let totalSoldAllGroups = calcs[dat][rep][adv][prop][grp].sold;
+                        // let totalSoldAllGroups = calcs[dat][rep][adv][prop].sold;
 
-                        if (!cleanupMode) {
+                        // let allGroupsRecord = null;
+                        // let allGroupsTotal = null;
 
-                            let noGroupFilter = s.createFilter({
-                                name: 'custrecord_revenue_forecast_type',
-                                operator: s.Operator.ISEMPTY,
-                                values: adv
-                            });
+                        // if (!cleanupMode) {
+                        //     let noGroupFilter = s.createFilter({
+                        //         name: 'custrecord_revenue_forecast_type',
+                        //         operator: s.Operator.ISEMPTY,
+                        //         values: adv
+                        //     });
 
-                            let allGroupsFilter = filter.concat(noGroupFilter);
-                            let allGroupsRecord = null;
-                            let allGroupsTotal = null;
+                        //     let allGroupsFilter = filter.concat(noGroupFilter);
 
-                            s.create({
-                                type: 'customrecord_revenue_forecast',
-                                filters: allGroupsFilter,
-                                columns: ['custrecord_revenue_forecast_sold']
-                            }).run().each(res => {
-                                allGroupsRecord = res.id;
-                                allGroupsTotal = res.getValue({name: 'custrecord_revenue_forecast_sold'});
-                                return false;
-                            });
-                        }
+                        //     s.create({
+                        //         type: 'customrecord_revenue_forecast',
+                        //         filters: allGroupsFilter,
+                        //         columns: ['custrecord_revenue_forecast_sold']
+                        //     }).run().each(res => {
+                        //         allGroupsRecord = res.id;
+                        //         allGroupsTotal = res.getValue({name: 'custrecord_revenue_forecast_sold'});
+                        //         return false;
+                        //     });
+                        // }
 
                         // UPDATE all groups record after looping through groups
                         Object.keys(calcs[dat][rep][adv][prop]).forEach(grp => {
-                            
+                            // if (grp == 'sold') return;
                             // log.debug({title: 'calcs value', details: JSON.stringify(calcs[dat][rep][adv][prop][grp])});
 
                             let totalSold = calcs[dat][rep][adv][prop][grp].sold;
@@ -354,40 +369,40 @@ define([
                             revRecord.save();
                             return;
                         });
-                    // UPDATE all groups record
-                    if (allGroupsTotal === totalSoldAllGroups) return;
-                    let revRecordAllGroups = (allGroupsRecord !== null)
-                        ? record.load({type: 'customrecord_revenue_forecast', id: allGroupsRecord})
-                        : record.create({type: 'customrecord_revenue_forecast'});
+                        // // UPDATE all groups record
+                        // if (allGroupsTotal === totalSoldAllGroups) return;
+                        // let revRecordAllGroups = (allGroupsRecord !== null)
+                        //     ? record.load({type: 'customrecord_revenue_forecast', id: allGroupsRecord})
+                        //     : record.create({type: 'customrecord_revenue_forecast'});
 
-                    if (allGroupsRecord === null) {
-                        // log.debug({title: 'making new record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
-                        
-                        revRecordAllGroups.setValue({
-                            fieldId: 'custrecord_revenue_forecast_date',
-                            value: dateObj
-                        });
-                        revRecordAllGroups.setValue({
-                            fieldId: 'custrecord_revenue_forecast_salesrep',
-                            value: rep
-                        });
-                        revRecordAllGroups.setValue({
-                            fieldId: 'custrecord_revenue_forecast_property',
-                            value: prop
-                        });
-                        revRecordAllGroups.setValue({
-                            fieldId: 'custrecord_revenue_forecast_advertiser',
-                            value: adv
-                        });
-                    }
+                        // if (allGroupsRecord === null) {
+                        //     // log.debug({title: 'making new record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
+                            
+                        //     revRecordAllGroups.setValue({
+                        //         fieldId: 'custrecord_revenue_forecast_date',
+                        //         value: dateObj
+                        //     });
+                        //     revRecordAllGroups.setValue({
+                        //         fieldId: 'custrecord_revenue_forecast_salesrep',
+                        //         value: rep
+                        //     });
+                        //     revRecordAllGroups.setValue({
+                        //         fieldId: 'custrecord_revenue_forecast_property',
+                        //         value: prop
+                        //     });
+                        //     revRecordAllGroups.setValue({
+                        //         fieldId: 'custrecord_revenue_forecast_advertiser',
+                        //         value: adv
+                        //     });
+                        // }
 
-                    revRecordAllGroups.setValue({
-                        fieldId: 'custrecord_revenue_forecast_sold',
-                        value: totalSoldAllGroups
-                    });
+                        // revRecordAllGroups.setValue({
+                        //     fieldId: 'custrecord_revenue_forecast_sold',
+                        //     value: totalSoldAllGroups
+                        // });
 
-                    revRecordAllGroups.save();
-                    return;
+                        // revRecordAllGroups.save();
+                        // return;
 
                     });
                 });

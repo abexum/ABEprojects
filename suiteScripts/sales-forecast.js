@@ -642,7 +642,7 @@ define([
                     incrementCalcs(res, type);
                     return true;
                 });
-            });    
+            });
         } else {
             // run each month calc individually to avoid return overflow
             for (let month = 0; month < 12; month++) {

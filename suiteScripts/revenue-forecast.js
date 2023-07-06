@@ -48,122 +48,68 @@ define([
      * @function onRequest
      */
 
-    const commonFields = type => [
-        { 
-            id: 'custbody_advertiser1',
+    const forecastFields = [
+        {
+            id: 'custrecord_revenue_forecast_advertiser',
             label: 'Primary Advertiser',
             type: ui.FieldType.TEXT
-        }
-    ];
-
-    const testFields = [
+        },
         { 
-            id: 'amount',
+            id: 'custrecord_revenue_forecast_sold',
             label: 'Sold',
             type: ui.FieldType.CURRENCY
         },
-        {
-            id: 'custcol_agency_mf_media_quantity_1',
+        { 
+            id: 'custrecord_revenue_forecast_forecasted',
             label: 'Forecasted',
-            type: ui.FieldType.FLOAT
-        },
-        {
-            id: 'custitem_product_group',
-            join: 'item',
-            label: 'Product Group',
-            type: ui.FieldType.TEXT
-        },
-        // { 
-        //     id: 'amount',
-        //     label: 'July 23',
-        //     type: ui.FieldType.CURRENCY
-        // },
-        // { 
-        //     id: 'amount',
-        //     label: 'Aug 23',
-        //     type: ui.FieldType.CURRENCY
-        // },
-        // { 
-        //     id: 'amount',
-        //     label: 'Sep 23',
-        //     type: ui.FieldType.CURRENCY
-        // },
-    ];
-    const orderFields = [
-        {
-            id: 'custcol_agency_mf_flight_start_date',
-            label: 'Flight Start',
-            type: ui.FieldType.DATE
-        },
-        {
-            id: 'custcol_agency_mf_flight_end_date',
-            label: 'Flight End',
-            type: ui.FieldType.DATE
-        },
-        {
-            id: 'item',
-            label: 'Item',
-            type: ui.FieldType.TEXT
-        },
-        {
-            id: 'custitem_product_group',
-            join: 'item',
-            label: 'Product Group',
-            type: ui.FieldType.TEXT
-        },
-        {
-            id: 'custcol_size',
-            label: 'Size',
-            type: ui.FieldType.TEXT
-        },
-        {
-            id: 'custcol_agency_mf_rate_model',
-            label: 'Rate Model',
-            type: ui.FieldType.TEXT
-        },
-        {
-            id: 'quantity',
-            label: 'Quantity',
-            type: ui.FieldType.FLOAT
-        },
-        {
-            id: 'custcol_agency_mf_media_quantity_1',
-            label: 'Media Quantity',
-            type: ui.FieldType.FLOAT
+            type: ui.FieldType.CURRENCY
         },
         { 
-            id: 'amount',
-            label: 'Full',
+            id: 'custrecord_revenue_forecast_probability',
+            label: 'Probability',
+            type: ui.FieldType.PERCENT
+        },
+        { 
+            id: 'custrecord_revenue_forecast_projected',
+            label: 'Projected',
             type: ui.FieldType.CURRENCY
         }
     ];
 
-    var runTheQuotaUpdateTask = false;
     var editedFields = [];
     
-
     const repFiltered = filter => (filter.salesrep && filter.salesrep !== '0');
     const propFiltered = filter => (filter.property && filter.property !== '0');
 
     const typesDictionary = {
-        salesorder: {
-            id: 'tranid',
-            label: 'Orders',
-            fields: commonFields('Order').concat(testFields),
-            searchFilter: 'SalesOrd'
+        revForecast: {
+            id: 'customrecord_revenue_forecast',
+            label: 'Revenue Forecast',
+            fields: forecastFields,
+            searchFilter: 'customrecord_revenue_forecast'
         },
     };
 
-    const calcs = {
-        weighted: 0, 
-        gross: 0, 
-        universal: 0, 
-        opportunity: 0, 
-        estimate: 0, 
-        salesorder: 0
-    };
+    const productGroups = [];
+
+    const calcs = {};
 
     const advertiserCalcs = {};
+
+    const dataResults = {
+        '1': [ // revenue type id
+            {
+                'id': 1, // or null
+                'primaryAdvertiser': 1,
+                'sold': 1000,
+                'forecasted': 1000,
+                'probability': 0.5,
+                'projected': 1500
+            } //,...
+        ]
+    }
+
+
 
     const fulfillmentUser = () => FCUtil.fulfillmentView();
     const salesRepUser = () => FCUtil.salesRepView();
@@ -201,15 +147,12 @@ define([
         // run search without display limit to get calcs
         fullSearch(filter);
 
-        // run searches that build sublists in display
-        Object.keys(typesDictionary).forEach(key => {
-            if (fulfillmentUser() && key !== 'salesorder') return;
-            renderList(page, key, displaySearch(key, filter), filter);
-        });
+        fillProductGroups();
 
-        if (salesRepUser() || adminUser()){
-            calcSection(page);
-        }
+        // run searches that build sublists in display
+        productGroups.forEach(group => {
+            renderList(page, group, displaySearch(key, filter), filter);
+        });
 
         context.response.writePage({
             pageObject: page
@@ -258,59 +201,37 @@ define([
         });
         endDateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
         endDateField.defaultValue = filter.enddate;
-        const fullyearField = page.addField({
-            id: 'custpage_fullyear',
-            label: 'search full year',
-            type: ui.FieldType.CHECKBOX,
-            container: 'custpage_filtergroup'
-        });
-        
-        fullyearField.defaultValue = (filter.fullyear) ? 'T' : 'F';
     }
 
-    function calcSection(page) {
-        page.addFieldGroup({
-            id : 'custpage_calcsgroup',
-            label : 'Forecast Calcs'
-        });
-        const weightedField = page.addField({
-            id: 'custpage_calcweight',
-            label: 'Weighted',
-            type: ui.FieldType.CURRENCY,
-            container: 'custpage_calcsgroup'
-        });
-        weightedField.defaultValue = calcs.weighted.toFixed(2);
-        weightedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+    function fillProductGroups() {
+        let groupListRecord = record.load({type: 'customlist', id: 703});
 
-        const grossField = page.addField({
-            id: 'custpage_calcgross',
-            label: 'Gross',
-            type: ui.FieldType.CURRENCY,
-            container: 'custpage_calcsgroup'
-        });
-        grossField.defaultValue = calcs.gross.toFixed(2);
-        grossField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+        const dupedRecord = JSON.parse(JSON.stringify(groupListRecord));
+        // log.debug({title: 'product group custom list record', details: JSON.stringify(dupedRecord.sublists.customvalue)});
 
-        const universalField = page.addField({
-            id: 'custpage_calcuniversal',
-            label: 'Universe',
-            type: ui.FieldType.CURRENCY,
-            container: 'custpage_calcsgroup'
+        Object.keys(dupedRecord.sublists.customvalue).forEach(key => {
+            if (dupedRecord.sublists.customvalue[key].isinactive == 'F') {
+                log.debug({
+                    title: 'search result col name in custom list', 
+                    details: dupedRecord.sublists.customvalue[key].value
+                });
+                let pgID = dupedRecord.sublists.customvalue[key].valueid;
+                let pgName = dupedRecord.sublists.customvalue[key].value;
+                productGroups.push({
+                    id: pgID,
+                    name: pgName
+                });
+            }
         });
-        universalField.defaultValue = calcs.universal.toFixed(2);
-        universalField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
-        universalField.updateBreakType({
-            breakType : ui.FieldBreakType.STARTCOL
-        });
+        log.debug({title: 'productGroups', details: productGroups});
     }
 
     function getFilter(request) {
-        const { salesrep, property, startdate, enddate, fullyear, updatelogid } = request.parameters;
+        const { salesrep, property, startdate, enddate, updatelogid } = request.parameters;
 
         // tool is first opened, kickoff the quota update task in preparation for a search
-        if (!(salesrep || property || startdate || enddate || fullyear)) runTheQuotaUpdateTask = true;
+        if (!(salesrep || property || startdate || enddate)) runTheQuotaUpdateTask = true;
 
-        const fy = (fullyear === 'true');
         const startValue = FCUtil.defaultStart(startdate, fy);
         const endValue = FCUtil.defaultEnd(enddate, fy);
 
@@ -353,25 +274,17 @@ define([
             salesrep: salesrep,
             property: property,
             startdate: startValue,
-            enddate: endValue,
-            fullyear: fy
+            enddate: endValue
         }
     }
 
-    function getRepPredictions(request) {
-        const { worstcase, mostlikely, upside } = request.parameters;
-        return (worstcase || mostlikely || upside) 
-            ? {worstcase: worstcase, mostlikely: mostlikely, upside: upside}
-            : null;
-    }
+    function renderList(form, productGroup, results, filter) {
 
-    function renderList(form, type, results, filter) {
-
-        const formatTotal = format.format({value: calcs[type], type: format.Type.CURRENCY}).slice(0,-3);
+        const formatTotal = format.format({value: calcs[productGroup.id], type: format.Type.CURRENCY}).slice(0,-3);
         const list = form.addSublist({
-            id : 'custpage_' + type,
+            id : 'custpage_product_group_' + productGroup.id,
             type : ui.SublistType.LIST,
-            label : typesDictionary[type].label + ' [$' + formatTotal +']'
+            label : productGroup.name + ' [$' + formatTotal +']'
         });
 
         const skip = id => {
@@ -448,108 +361,33 @@ define([
         return list;
     }
 
-    function displaySearch(type, filter) {
-        if (!repFiltered(filter) && !propFiltered(filter)) return [];
-        log.audit({title: 'Finding Transactions...'});
-        let searchResults = [];
-        // TODO adjust month display behavior
-        for (let month = 0; month < 12; month++) {
-            s.create({
-                type: s.Type.TRANSACTION,
-                filters: buildSearchFilter(filter, type, month),
-                columns: typesDictionary[type].fields.map(op => {
-                    if (op.join) {
-                        return s.createColumn({ name: op.id, join: op.join });
-                    }
-                    return op.id;
-                })
-            }).run().each(res => {
-                // update to grab only the page number
-                searchResults.push(translate(res));
-                if (searchResults.length === 300) return false;
-                return true;
-            });
-        }
 
-        return searchResults;
-    }
 
     function fullSearch(filter) {
-        let filters = {};
-        const columns = (type) => {
-            const cols = ['amount'];
-            if (type !== 'salesorder') {
-                cols.push('probability');
-                cols.push('custcolforecast_inclusion');
-            }
-            return cols;
-        };
+
+        log.audit({title: 'Finding Revenue Forecast Records...'});
+
+        const { rep, prop, startdate } = filter;
+        const nsDate = format.format({value: startdate, type: format.Type.DATE});
+        const filter = FCUtil.revSearchFilter(nsDate, rep, prop);
+        const columns = forecastFields.map(f => f.id).concat('custrecord_revenue_forecast_type');
+
+        s.create({
+            type: 'customrecord_revenue_forecast',
+            filters: filter,
+            columns: columns
+        }).run().each(res => {
+            let type = res.getValue({name: 'custrecord_revenue_forecast_type'});
+            incrementCalcs(res, type);
+            // TODO begin building our indexed data values
+            return true;
+        });
+
 
         const incrementCalcs = (res, type) => {
-            const amount = res.getValue({name: 'amount'});
-            const probability = res.getValue({name: 'probability'});
-            const forecast = res.getValue({name: 'custcolforecast_inclusion'});
-
-            const grossnum = parseFloat(amount);
-            calcs.universal+= grossnum;
-            calcs[type]+=grossnum;
-            if (type !== 'salesorder') {
-                const weightvalue = grossnum*(parseFloat(probability)/100);
-                if (forecast) {
-                    calcs.weighted+=weightvalue;
-                    calcs.gross+=grossnum;
-                }
-            } else {
-                calcs.weighted+=grossnum;
-                calcs.gross+=grossnum;
-            }
+            const sold = res.getValue({name: 'custrecord_revenue_forecast_sold'});
+            calcs[type] += parseFloat(sold);
         };
-
-        // TODO run for rolling period of 12 months
-        // run each month calc individually to avoid return overflow
-        for (let month = 0; month < 12; month++) {
-            Object.keys(typesDictionary).forEach(type => {
-                filters[type] = buildSearchFilter(filter, type, month);
-            });
-            Object.keys(typesDictionary).forEach(type => {
-                s.create({
-                    type: s.Type.TRANSACTION,
-                    filters: filters[type],
-                    columns: columns(type)
-                }).run().each(res => {
-                    incrementCalcs(res, type);
-                    return true;
-                });
-            });
-        }
-    }
-
-    function buildSearchFilter(filter, transactionType, month) {
-        if (!month && month !== 0) month = filter.startdate.getMonth();
-        const year = filter.startdate.getFullYear();
-        const monthfilter = FCUtil.searchFilter(
-            typesDictionary[transactionType].searchFilter,
-            month,
-            year
-        );
-        const { salesrep, property } = filter;
-        if (repFiltered(filter)) {
-            const repFilter = s.createFilter({
-                name: 'salesrep',
-                operator: s.Operator.ANYOF,
-                values: salesrep
-            });
-            monthfilter.push(repFilter);
-        }
-        if (propFiltered(filter)) {
-            const propertyFilter = s.createFilter({
-                name: 'class',
-                operator: s.Operator.ANYOF,
-                values: property
-            });
-            monthfilter.push(propertyFilter);
-        }
-        return monthfilter;
     }
 
     function translate(result) {
