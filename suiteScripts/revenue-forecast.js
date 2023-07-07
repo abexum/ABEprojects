@@ -77,39 +77,10 @@ define([
     ];
 
     var editedFields = [];
-    
-    const repFiltered = filter => (filter.salesrep && filter.salesrep !== '0');
-    const propFiltered = filter => (filter.property && filter.property !== '0');
-
-    const typesDictionary = {
-        revForecast: {
-            id: 'customrecord_revenue_forecast',
-            label: 'Revenue Forecast',
-            fields: forecastFields,
-            searchFilter: 'customrecord_revenue_forecast'
-        },
-    };
 
     const productGroups = [];
-
+    const advertiserIndex = {};
     const calcs = {};
-
-    const advertiserCalcs = {};
-
-    const dataResults = {
-        '1': [ // revenue type id
-            {
-                'id': 1, // or null
-                'primaryAdvertiser': 1,
-                'sold': 1000,
-                'forecasted': 1000,
-                'probability': 0.5,
-                'projected': 1500
-            } //,...
-        ]
-    }
-
-
 
     const fulfillmentUser = () => FCUtil.fulfillmentView();
     const salesRepUser = () => FCUtil.salesRepView();
@@ -145,13 +116,16 @@ define([
 
         filterOptionsSection(page, filter);
         // run search without display limit to get calcs
-        fullSearch(filter);
 
         fillProductGroups();
 
+        emptyAdvertiserIndex(filter);
+
+        fillAdvertiserIndex(filter);
+
         // run searches that build sublists in display
         productGroups.forEach(group => {
-            renderList(page, group, displaySearch(key, filter), filter);
+            renderList(page, group);
         });
 
         context.response.writePage({
@@ -221,9 +195,79 @@ define([
                     id: pgID,
                     name: pgName
                 });
+                calcs[pgID] = {};
             }
         });
         log.debug({title: 'productGroups', details: productGroups});
+    }
+
+    function emptyAdvertiserIndex(filter) {
+        const { salesrep, property } = filter;
+        s.create({
+            type: s.Type.CUSTOMER,
+            columns: ['companyname'],
+            filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and',  
+                ['isinactive', s.Operator.IS, ['F']], 'and',
+                ['salesrep', s.Operator.ANYOF, [salesrep]], 'and',
+                ['custentity4', s.Operator.ANYOF, [property]]
+            ]
+        }).run().each(res => {
+            let name = res.getValue({name: 'companyname'});
+            checkAddIndex(res.id, name);
+            return true;
+        });
+    }
+
+    function fillAdvertiserIndex(filter) {
+
+        log.audit({title: 'Finding Revenue Forecast Records...'});
+
+        const { rep, prop, startdate } = filter;
+        const nsDate = format.format({value: startdate, type: format.Type.DATE});
+        const advSearchFilter = FCUtil.revSearchFilter(nsDate, rep, prop);
+        const columns = forecastFields.map(f => f.id).concat('custrecord_revenue_forecast_type');
+
+        s.create({
+            type: 'customrecord_revenue_forecast',
+            filters: advSearchFilter,
+            columns: columns
+        }).run().each(res => {
+            // type === productGroup
+            let sold = res.getValue({name: 'custrecord_revenue_forecast_sold'});
+            let forecasted = res.getValue({name: 'custrecord_revenue_forecast_forecasted'});
+            let projected = res.getValue({name: 'custrecord_revenue_forecast_projected'});
+            let type = res.getValue({name: 'custrecord_revenue_forecast_type'});
+            incrementCalcs(sold, forecasted, projected, type);
+            // TODO check index for undefined
+            let advertiser = res.getValue({name: 'custrecord_revenue_forecast_advertiser'});
+            let advertiserName = res.getText({name: 'custrecord_revenue_forecast_advertiser'});
+
+            checkAddIndex(advertiser, advertiserName);
+            advertiserIndex[advertiser][type].recId = res.id;
+            advertiserIndex[advertiser][type].forecasted = forecasted;
+            advertiserIndex[advertiser][type].projected = projected;
+            return true;
+        });
+
+        const incrementCalcs = (sold, forecasted, projected, type) => {
+            calcs[type].sold += parseFloat(sold);
+            calcs[type].forecasted += parseFloat(forecasted);
+            calcs[type].projected += parseFloat(projected);
+        };
+    }
+
+    function checkAddIndex(advertiser, name) {
+        if (advertiserIndex[advertiser] === undefined) {
+            advertiserIndex[advertiser] = {};
+            advertiserIndex[advertiser].name = name;
+            productGroups.forEach(grp => {
+                advertiserIndex[advertiser][grp.id].recId = null;
+                advertiserIndex[advertiser][grp.id].sold = 0;
+                advertiserIndex[advertiser][grp.id].forecasted = 0;
+                advertiserIndex[advertiser][grp.id].probability = 0;
+                advertiserIndex[advertiser][grp.id].projected = 0;
+            });
+        }
     }
 
     function getFilter(request) {
@@ -232,8 +276,8 @@ define([
         // tool is first opened, kickoff the quota update task in preparation for a search
         if (!(salesrep || property || startdate || enddate)) runTheQuotaUpdateTask = true;
 
-        const startValue = FCUtil.defaultStart(startdate, fy);
-        const endValue = FCUtil.defaultEnd(enddate, fy);
+        const startValue = FCUtil.defaultStart(startdate, 0);
+        const endValue = FCUtil.defaultEnd(enddate, 0);
 
         if (updatelogid) {
             try {
@@ -278,7 +322,31 @@ define([
         }
     }
 
-    function renderList(form, productGroup, results, filter) {
+    function renderList(form, productGroup) {
+
+        let advertiserResults = [];
+        Object.keys(advertiserIndex).forEach(adv => {
+            let displayEntry = JSON.parse(JSON.stringify(advertiserIndex[adv][productGroup.id]));
+            displayEntry.advertiser = adv;
+            displayEntry.advertiserName = advertiserIndex[adv].name;
+            advertiserResults.push(displayEntry);
+        });
+
+        /* advertiserResults format
+        {
+            '1': [ // product group id
+                {
+                    'id': 1, // id of revenue forecast record or null
+                    'advertiser': 1, //clientId
+                    'advertiserName': 'companyname'
+                    'sold': 1000,
+                    'forecasted': 1000,
+                    'probability': 0.5,
+                    'projected': 1500
+                } //,...
+            ]
+        }
+        */
 
         const formatTotal = format.format({value: calcs[productGroup.id], type: format.Type.CURRENCY}).slice(0,-3);
         const list = form.addSublist({
@@ -287,40 +355,24 @@ define([
             label : productGroup.name + ' [$' + formatTotal +']'
         });
 
-        const skip = id => {
-            return (repFiltered(filter) && id === 'salesrep') 
-            || (propFiltered(filter) && id === 'class');
-        };
 
-        const columns = typesDictionary[type].fields;
+        const columns = forecastFields;
         columns.forEach(id => {
-            // remove columns searched for
-            if (skip(id.id)) return;
             const field = list.addField(id);
             // extras for input fields
-            // entity status would go here as dropdown if needed
-            if (id.id === 'probability' || (type === 'opportunity' && id.id === 'amount')) {
-                field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
-            } else if (id.id === 'line') {
-                field.updateDisplayType({displayType : ui.FieldDisplayType.HIDDEN});
-            } else if ((adminUser() || fulfillmentUser())
-                && (type === 'salesorder' && id.id === 'custcol_agency_mf_media_quantity_1')) {
+            
+            if (id.id === 'custrecord_revenue_forecast_forecasted' 
+                || id.id === 'custrecord_revenue_forecast_probability'
+                || id.id === 'custrecord_revenue_forecast_projected') {
                 field.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
             }
+            if (id.id === 'custrecord_revenue_forecast_projected') {
+                field.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+            }
         });
-        if (type !== 'salesorder'){
-            const weightField = list.addField({
-                id: 'custpage_weighted',
-                label: 'Weighted',
-                type: ui.FieldType.CURRENCY,
-            });
-            weightField.updateDisplayType({displayType: ui.FieldDisplayType.ENTRY});
-            weightField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
-        }
 
-        results.forEach((res, index) => {
+        advertiserResults.forEach((res, index) => {
             Object.keys(res).forEach(key => {
-                if (skip(key)) return;
                 let value = res[key];
                 // if field was edited update with the new value rather than one found in search
                 let fieldIndex = editedFields.findIndex(function(field) {
@@ -330,14 +382,15 @@ define([
                     );
                 });
                 if (fieldIndex !== -1) value = editedFields[fieldIndex].value;
-                if (value && key !== 'recordType' && key !== 'id') {
-                    if (key === 'tranid'){
+
+                if (value && key !== 'advertiserName' && key !== 'recId') {
+                    if (key === 'advertiser'){
                         const link = url.resolveRecord({
                             isEditMode: false,
-                            recordId: res.id,
-                            recordType: res.recordType,
+                            recordId: value,
+                            recordType: 'custoemr',
                         });
-                        value = '<a href="'+link+'" target="_blank">'+value+'</a>';
+                        value = '<a href="'+link+'" target="_blank">'+res.advertiserName+'</a>';
                     }
                     list.setSublistValue({
                         id: key,
@@ -346,95 +399,9 @@ define([
                     });
                 }
             });
-
-            const grossnum = parseFloat(res.amount);
-            if (type !== 'salesorder') {
-                const weightvalue = grossnum*(parseFloat(res.probability)/100);
-                list.setSublistValue({
-                    id: 'custpage_weighted',
-                    line: index,
-                    value: weightvalue.toFixed(2)
-                });
-            }
         });
 
         return list;
-    }
-
-
-
-    function fullSearch(filter) {
-
-        log.audit({title: 'Finding Revenue Forecast Records...'});
-
-        const { rep, prop, startdate } = filter;
-        const nsDate = format.format({value: startdate, type: format.Type.DATE});
-        const filter = FCUtil.revSearchFilter(nsDate, rep, prop);
-        const columns = forecastFields.map(f => f.id).concat('custrecord_revenue_forecast_type');
-
-        s.create({
-            type: 'customrecord_revenue_forecast',
-            filters: filter,
-            columns: columns
-        }).run().each(res => {
-            let type = res.getValue({name: 'custrecord_revenue_forecast_type'});
-            incrementCalcs(res, type);
-            // TODO begin building our indexed data values
-            return true;
-        });
-
-
-        const incrementCalcs = (res, type) => {
-            const sold = res.getValue({name: 'custrecord_revenue_forecast_sold'});
-            calcs[type] += parseFloat(sold);
-        };
-    }
-
-    function translate(result) {
-        const fields = typesDictionary[result.recordType].fields;
-        const row = {
-            id: result.id,
-            recordType: result.recordType
-        };
-
-        fields.forEach(f => {
-            if (f.type === ui.FieldType.TEXT) {
-                var text = (f.join)
-                    ? result.getText({name: f.id, join: f.join})
-                    : result.getText({name: f.id});
-                // removeHierachy
-                text = FCUtil.formatName(text)
-                row[f.id] = (f.id === 'custbody_advertiser1')
-                    ? text.substring(text.indexOf(' ')+1)
-                    : text;
-            } else {
-                var value = (f.join)
-                    ? result.getValue({name: f.id, join: f.join})
-                    : result.getValue({name: f.id});
-                if (f.id === 'custcolforecast_inclusion') {
-                    row[f.id] = (value) ? 'T' : 'F';
-                } else {
-                    row[f.id] = value;
-                }
-            }
-        });
-        // increment the on the advertiser for the given month
-        incrementAdvertiserRevenue(
-            row['custbody_advertiser1'], 
-            row['custcol_agency_mf_flight_end_date'],
-            row['amount']
-        );
-        return row;
-    }
-
-    function incrementAdvertiserRevenue(advertiser, date, amount) {
-        // TODO convert date to just month
-        if (advertiserCalcs[advertiser] === undefined) advertiserCalcs[advertiser] = {};
-        if (advertiserCalcs[advertiser][date] === undefined) {
-            advertiserCalcs[advertiser][date] = amount;
-            return;
-        }
-        advertiserCalcs[advertiser][date] += amount;
     }
 
     exports.onRequest = onRequest;
