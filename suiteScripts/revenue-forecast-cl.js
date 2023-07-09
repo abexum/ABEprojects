@@ -315,7 +315,6 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         const property = page.getValue({fieldId: 'custpage_property'});
         const startdate = page.getValue({fieldId: 'custpage_startdate'});
         const enddate = page.getValue({fieldId: 'custpage_enddate'});
-        const fullyear = page.getValue({fieldId: 'custpage_fullyear'});
 
         const filteredURL = new URL(document.location.href);
 
@@ -323,7 +322,6 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         filteredURL.searchParams.set('property', property);
         filteredURL.searchParams.set('startdate', startdate);
         filteredURL.searchParams.set('enddate', enddate);
-        filteredURL.searchParams.set('fullyear', fullyear);
 
         filteredURL.searchParams.delete('worstcase');
         filteredURL.searchParams.delete('mostlikely');

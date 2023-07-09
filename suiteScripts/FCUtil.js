@@ -89,33 +89,19 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
      * TODO rebuild these functions depend on editable records in netsuite
     */
 
-    FCUtil.dateIndex = (filter) => {
-        const twelveMonths = [];
-        for (let i = 0; i < 12; i++) {
+    FCUtil.dateIndex = (filter, monthTotal = 12) => {
+        const months = [];
+        for (let i = 0; i < monthTotal; i++) {
             let colDate = new Date(filter.startdate.getFullYear(), filter.startdate.getMonth() + i, 1);
             monthIndex = colDate.getMonth();
             year = colDate.getFullYear();
-            twelveMonths.push({
+            months.push({
                 month: monthIndex,
                 year: year
             });
         }
-        return twelveMonths;
+        return months;
     };
-
-    FCUtil.dateIndexFourMonth = (filter) => {
-        const fourMonths = [];
-        for (let i = 0; i < 4; i++) {
-            let colDate = new Date(filter.startdate.getFullYear(), filter.startdate.getMonth() + i, 1);
-            monthIndex = colDate.getMonth();
-            year = colDate.getFullYear();
-            fourMonths.push({
-                month: monthIndex,
-                year: year
-            });
-        }
-        return fourMonths;
-    }
 
     FCUtil.defaultStart = (start, fullyear) => {
         const date = (start) ? new Date(start.substring(0, start.indexOf('00:00:00'))) : new Date();

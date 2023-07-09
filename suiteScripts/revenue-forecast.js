@@ -2,13 +2,12 @@ define([
     "N/search",
     "N/url",
     "N/task",
-    "N/file",
     "N/format",
     "N/ui/serverWidget",
     "N/record",
     "N/log",
     "../sales-forecast/FCUtil"
-], function (s, url, task, file, format, ui, record, log, FCUtil) {
+], function (s, url, task, format, ui, record, log, FCUtil) {
 
     /**
      * Revenue Forecast Suitelet: Improved revenue forecaster for ACBM
@@ -82,6 +81,9 @@ define([
     const advertiserIndex = {};
     const calcs = {};
 
+    var salesrepResultList = []
+    var propertyResultList = []
+
     const fulfillmentUser = () => FCUtil.fulfillmentView();
     const salesRepUser = () => FCUtil.salesRepView();
     const adminUser = () => FCUtil.adminView();
@@ -100,7 +102,11 @@ define([
             title: displayTitle
         });
 
-        const filter = getFilter(context.request);
+        let filter = getFilter(context.request);
+        filterOptionsSection(page, filter);
+        // TODO use better
+        if (!filter.salesrep) filter.salesrep = salesrepResultList[0].id;
+        if (!filter.property) filter.property = propertyResultList[0].id;
 
         page.clientScriptModulePath = "./revenue-forecast-cl.js";
         page.addButton({
@@ -108,20 +114,22 @@ define([
             label : 'Update Filters',
             functionName: 'performSearch'
         });
-        page.addButton({
+        let saveButton = page.addButton({
             id : 'custpage_saveButton',
             label : 'Save',
             functionName: 'save'
-        });
-
-        filterOptionsSection(page, filter);
-        // run search without display limit to get calcs
+        });  
+        saveButton.isDisabled = true;
 
         fillProductGroups();
 
         emptyAdvertiserIndex(filter);
 
+        // log.debug({title: 'emptyIndex', details: JSON.stringify(advertiserIndex)});
+
         fillAdvertiserIndex(filter);
+
+        // log.debug({title: 'filledIndex', details: JSON.stringify(advertiserIndex)});
 
         // run searches that build sublists in display
         productGroups.forEach(group => {
@@ -146,7 +154,7 @@ define([
             type: ui.FieldType.SELECT,
             container: 'custpage_filtergroup'
         });
-        FCUtil.getSalesReps(salesRepSearchField, filter.salesrep);
+        salesrepResultList = FCUtil.getSalesReps(salesRepSearchField, filter.salesrep);
 
         const propertySearchField = page.addField({
             id: 'custpage_property',
@@ -154,7 +162,7 @@ define([
             type: ui.FieldType.SELECT,
             container: 'custpage_filtergroup'
         });
-        FCUtil.getProperties(propertySearchField, filter.property);
+        propertyResultList = FCUtil.getProperties(propertySearchField, filter.property);
 
         const startDateField = page.addField({
             id: 'custpage_startdate',
@@ -196,9 +204,11 @@ define([
                     name: pgName
                 });
                 calcs[pgID] = {};
+                calcs[pgID].sold = 0;
+                calcs[pgID].forecasted = 0;
+                calcs[pgID].projected = 0;
             }
         });
-        log.debug({title: 'productGroups', details: productGroups});
     }
 
     function emptyAdvertiserIndex(filter) {
@@ -212,6 +222,7 @@ define([
                 ['custentity4', s.Operator.ANYOF, [property]]
             ]
         }).run().each(res => {
+            
             let name = res.getValue({name: 'companyname'});
             checkAddIndex(res.id, name);
             return true;
@@ -222,10 +233,21 @@ define([
 
         log.audit({title: 'Finding Revenue Forecast Records...'});
 
-        const { rep, prop, startdate } = filter;
+        const { salesrep, property, startdate } = filter;
         const nsDate = format.format({value: startdate, type: format.Type.DATE});
-        const advSearchFilter = FCUtil.revSearchFilter(nsDate, rep, prop);
-        const columns = forecastFields.map(f => f.id).concat('custrecord_revenue_forecast_type');
+        const advSearchFilter = FCUtil.revSearchFilter(nsDate, salesrep, property);
+        const columns = [
+            'custrecord_revenue_forecast_advertiser',
+            'custrecord_revenue_forecast_type',
+            'custrecord_revenue_forecast_sold',
+            'custrecord_revenue_forecast_forecasted',
+            'custrecord_revenue_forecast_probability',
+            s.createColumn({
+                name: 'formulacurrency',
+                formula: '{custrecord_revenue_forecast_sold}+({custrecord_revenue_forecast_forecasted}*{custrecord_revenue_forecast_probability})'
+            })
+        ];
+
 
         s.create({
             type: 'customrecord_revenue_forecast',
@@ -235,7 +257,8 @@ define([
             // type === productGroup
             let sold = res.getValue({name: 'custrecord_revenue_forecast_sold'});
             let forecasted = res.getValue({name: 'custrecord_revenue_forecast_forecasted'});
-            let projected = res.getValue({name: 'custrecord_revenue_forecast_projected'});
+            let probability = res.getValue({name: 'custrecord_revenue_forecast_probability'});
+            let projected = res.getValue({name: 'formulacurrency'});
             let type = res.getValue({name: 'custrecord_revenue_forecast_type'});
             incrementCalcs(sold, forecasted, projected, type);
             // TODO check index for undefined
@@ -244,16 +267,12 @@ define([
 
             checkAddIndex(advertiser, advertiserName);
             advertiserIndex[advertiser][type].recId = res.id;
+            advertiserIndex[advertiser][type].sold = sold;
             advertiserIndex[advertiser][type].forecasted = forecasted;
+            advertiserIndex[advertiser][type].probability = probability;
             advertiserIndex[advertiser][type].projected = projected;
             return true;
         });
-
-        const incrementCalcs = (sold, forecasted, projected, type) => {
-            calcs[type].sold += parseFloat(sold);
-            calcs[type].forecasted += parseFloat(forecasted);
-            calcs[type].projected += parseFloat(projected);
-        };
     }
 
     function checkAddIndex(advertiser, name) {
@@ -261,6 +280,7 @@ define([
             advertiserIndex[advertiser] = {};
             advertiserIndex[advertiser].name = name;
             productGroups.forEach(grp => {
+                advertiserIndex[advertiser][grp.id] = {};
                 advertiserIndex[advertiser][grp.id].recId = null;
                 advertiserIndex[advertiser][grp.id].sold = 0;
                 advertiserIndex[advertiser][grp.id].forecasted = 0;
@@ -269,6 +289,12 @@ define([
             });
         }
     }
+
+    function incrementCalcs(sold, forecasted, projected, type) {
+        calcs[type].sold += parseFloat(sold);
+        calcs[type].forecasted += parseFloat(forecasted);
+        calcs[type].projected += parseFloat(projected);
+    };
 
     function getFilter(request) {
         const { salesrep, property, startdate, enddate, updatelogid } = request.parameters;
@@ -332,6 +358,8 @@ define([
             advertiserResults.push(displayEntry);
         });
 
+        log.debug({title: 'advertiserResults', details: JSON.stringify(advertiserResults)});
+
         /* advertiserResults format
         {
             '1': [ // product group id
@@ -348,11 +376,12 @@ define([
         }
         */
 
-        const formatTotal = format.format({value: calcs[productGroup.id], type: format.Type.CURRENCY}).slice(0,-3);
+        const formatTotal = format.format({value: calcs[productGroup.id].sold || 0, type: format.Type.CURRENCY}).slice(0,-3);
+        const formatProjected = format.format({value: calcs[productGroup.id].projected || 0, type: format.Type.CURRENCY}).slice(0,-3);
         const list = form.addSublist({
             id : 'custpage_product_group_' + productGroup.id,
             type : ui.SublistType.LIST,
-            label : productGroup.name + ' [$' + formatTotal +']'
+            label : productGroup.name + ' [$' + formatTotal + ' of $' + formatProjected + ']'
         });
 
 
@@ -372,6 +401,7 @@ define([
         });
 
         advertiserResults.forEach((res, index) => {
+            log.debug({title: 'checking result into display : ' + index, details: JSON.stringify(res)});
             Object.keys(res).forEach(key => {
                 let value = res[key];
                 // if field was edited update with the new value rather than one found in search
@@ -383,19 +413,19 @@ define([
                 });
                 if (fieldIndex !== -1) value = editedFields[fieldIndex].value;
 
-                if (value && key !== 'advertiserName' && key !== 'recId') {
+                if ((value || value == 0) && key !== 'advertiserName' && key !== 'recId') {
                     if (key === 'advertiser'){
                         const link = url.resolveRecord({
                             isEditMode: false,
                             recordId: value,
-                            recordType: 'custoemr',
+                            recordType: 'customer',
                         });
                         value = '<a href="'+link+'" target="_blank">'+res.advertiserName+'</a>';
                     }
                     list.setSublistValue({
-                        id: key,
+                        id: 'custrecord_revenue_forecast_' + key,
                         line: index,
-                        value: value
+                        value: value || 0
                     });
                 }
             });
