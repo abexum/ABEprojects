@@ -72,6 +72,11 @@ define([
             id: 'custrecord_revenue_forecast_projected',
             label: 'Projected',
             type: ui.FieldType.CURRENCY
+        },
+        {
+            id: 'scriptid',
+            label: 'revenue forecast record',
+            type: ui.FieldType.INTEGER
         }
     ];
 
@@ -83,11 +88,6 @@ define([
 
     var salesrepResultList = []
     var propertyResultList = []
-
-    const fulfillmentUser = () => FCUtil.fulfillmentView();
-    const salesRepUser = () => FCUtil.salesRepView();
-    const adminUser = () => FCUtil.adminView();
-    const adminTask = () => FCUtil.adminTask();
 
     function onRequest(context) {
         log.audit({title: 'Loading Revenue Suitelet...'});
@@ -119,7 +119,7 @@ define([
             label : 'Save',
             functionName: 'save'
         });  
-        saveButton.isDisabled = true;
+        //saveButton.isDisabled = true;
 
         fillProductGroups();
 
@@ -193,10 +193,10 @@ define([
 
         Object.keys(dupedRecord.sublists.customvalue).forEach(key => {
             if (dupedRecord.sublists.customvalue[key].isinactive == 'F') {
-                log.debug({
-                    title: 'search result col name in custom list', 
-                    details: dupedRecord.sublists.customvalue[key].value
-                });
+                // log.debug({
+                //     title: 'search result col name in custom list', 
+                //     details: dupedRecord.sublists.customvalue[key].value
+                // });
                 let pgID = dupedRecord.sublists.customvalue[key].valueid;
                 let pgName = dupedRecord.sublists.customvalue[key].value;
                 productGroups.push({
@@ -299,9 +299,6 @@ define([
     function getFilter(request) {
         const { salesrep, property, startdate, enddate, updatelogid } = request.parameters;
 
-        // tool is first opened, kickoff the quota update task in preparation for a search
-        if (!(salesrep || property || startdate || enddate)) runTheQuotaUpdateTask = true;
-
         const startValue = FCUtil.defaultStart(startdate, 0);
         const endValue = FCUtil.defaultEnd(enddate, 0);
 
@@ -358,7 +355,7 @@ define([
             advertiserResults.push(displayEntry);
         });
 
-        log.debug({title: 'advertiserResults', details: JSON.stringify(advertiserResults)});
+        // log.debug({title: 'advertiserResults', details: JSON.stringify(advertiserResults)});
 
         /* advertiserResults format
         {
@@ -381,8 +378,9 @@ define([
         const list = form.addSublist({
             id : 'custpage_product_group_' + productGroup.id,
             type : ui.SublistType.LIST,
-            label : productGroup.name + ' [$' + formatTotal + ' of $' + formatProjected + ']'
+            label : productGroup.name + ' [$' + formatTotal + ']'//' of $' + formatProjected + ']'
         });
+        // TODO find better way to display these totals and projections
 
 
         const columns = forecastFields;
@@ -398,20 +396,32 @@ define([
             if (id.id === 'custrecord_revenue_forecast_projected') {
                 field.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
             }
+            if (id.id == 'scriptid') {
+                field.updateDisplayType({displayType : ui.FieldDisplayType.HIDDEN});
+            }
         });
 
         advertiserResults.forEach((res, index) => {
-            log.debug({title: 'checking result into display : ' + index, details: JSON.stringify(res)});
+            // log.debug({title: 'checking result into display : ' + index, details: JSON.stringify(res)});
             Object.keys(res).forEach(key => {
                 let value = res[key];
                 // if field was edited update with the new value rather than one found in search
                 let fieldIndex = editedFields.findIndex(function(field) {
-                    return (field.sublistId === 'custpage_' + type
-                        && field.fieldId === key
+                    return (field.sublistId === 'custpage_product_group_' + productGroup.id
+                        && field.fieldId === 'custrecord_revenue_forecast_' + key
                         && field.line === index
                     );
                 });
                 if (fieldIndex !== -1) value = editedFields[fieldIndex].value;
+
+                if (key === 'recId') {
+                    list.setSublistValue({
+                        id: 'scriptid',
+                        line: index,
+                        value: value || 0
+                    });
+                    return;
+                }
 
                 if ((value || value == 0) && key !== 'advertiserName' && key !== 'recId') {
                     if (key === 'advertiser'){

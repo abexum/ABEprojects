@@ -20,29 +20,6 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
 
     function pageInit() {
         window.onbeforeunload = null;
-        const lines = page.getLineCount({sublistId: 'custpage_salesorder'});
-        for (var i = 0; i < lines; i++) {
-            var mediaquantity = page.getSublistValue({
-                sublistId: 'custpage_salesorder',
-                fieldId: 'custcol_agency_mf_media_quantity_1',
-                line: i
-            });
-            var quantity = page.getSublistValue({
-                sublistId: 'custpage_salesorder',
-                fieldId: 'quantity',
-                line: i
-            });
-
-            // disable any fulfilled (media quantity present) or zero quantity orders
-            if (mediaquantity || !quantity) {
-                var field = page.getSublistField({
-                    sublistId: 'custpage_salesorder',
-                    fieldId: 'custcol_agency_mf_media_quantity_1',
-                    line: i
-                });
-                if (field) field.isDisabled = true;
-            }
-        }
     }
 
     // editlog structure
@@ -61,12 +38,9 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
     var editfields = [];
 
     function addToEditLog(sublistId, line, fieldId) {
+        
         const id = getInternalId(sublistId, line);
-        const index = page.getSublistValue({
-            sublistId: sublistId,
-            fieldId: 'line',
-            line: line
-        });
+        console.info('edit log internalId : ' + id);
         const value = page.getSublistValue({
             sublistId: sublistId,
             fieldId: fieldId,
@@ -74,27 +48,47 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         });
 
         // editlog for FCUpdate script on save page refresh
+
         const recordIndex = editlog.findIndex(function(entry) {
             return (entry.id === id);
         });
 
         if (recordIndex === -1) { // make new record entry
-            const newEntry = {id: id, type: sublistIdType(sublistId), lines: [{index: index}]};
-            newEntry.lines[0][fieldId] = value;
+            const newEntry = {id: id, type: 'customrecord_revenue_forecast'};
+            
+            // TODO add the rep, prop, date, group, advertiser to the edit log
+            if (typeof id === 'string' || id instanceof String) {
+                const salesrep = page.getValue({fieldId: 'custpage_salesrep'});
+                const property = page.getValue({fieldId: 'custpage_property'});
+                const startdate = page.getValue({fieldId: 'custpage_startdate'});
+                const jsDate = new Date(startdate)
+    
+                const formattedDate = jsDate.getMonth() + '/1/' + jsDate.getFullYear();
+                const groupId = sublistId.split('_').pop();
+                const advertiserURL = page.getSublistValue({
+                    sublistId: sublistId,
+                    fieldId: 'custrecord_revenue_forecast_advertiser',
+                    line: line
+                });
+                const advertiser = getIDfromHTML(advertiserURL);
+    
+                newEntry['custrecord_revenue_forecast_salesrep'] = salesrep;
+                newEntry['custrecord_revenue_forecast_advertiser'] = advertiser;
+                newEntry['custrecord_revenue_forecast_property'] = property;
+                newEntry['custrecord_revenue_forecast_type'] = groupId;
+                newEntry['custrecord_revenue_forecast_date'] = formattedDate;
+            }
+
+            newEntry[fieldId] = value;
             editlog.push(newEntry);
         } else { // add to existing record log
-            const lineIndex = editlog[recordIndex].lines.findIndex(function(l) {
-                return (l.index === index);
-            });
-            if (lineIndex === -1) { // make new line entry
-                const newLine = {index: index};
-                newLine[fieldId] = value;
-                editlog[recordIndex].lines.push(newLine);
-            } else { // add to existing line item fields
-                editlog[recordIndex].lines[lineIndex][fieldId] = value;
-            }
+            editlog[recordIndex][fieldId] = value;
         }
 
+        addToEditFields(sublistId, line, fieldId, value)
+    }
+
+    function addToEditFields(sublistId, line, fieldId, value) {
         // field edits for UI on save page refresh
         var fieldIndex = editfields.findIndex(function(field) {
             return (field.sublistId === sublistId
@@ -117,22 +111,13 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             editfields[fieldIndex].value = fieldValue;
         }
     }
-    function sublistIdType(sublistId) {
-        if (sublistId === 'custpage_opportunity') return record.Type.OPPORTUNITY;
-        if (sublistId === 'custpage_estimate') return record.Type.ESTIMATE;
-        if (sublistId === 'custpage_salesorder') return record.Type.SALES_ORDER;
-    }
 
     function fieldChanged(context) {
-
-        if (context.fieldId === 'custpage_startdate' || context.fieldId === 'custpage_fullyear') {
+        if (context.fieldId === 'custpage_startdate') {
             console.info("datesChanged...");
             var startdate = page.getValue({fieldId: 'custpage_startdate'});
-            const fullyear = page.getValue({fieldId: 'custpage_fullyear'});
             const date = new Date(startdate);
-            const enddate = (fullyear)
-                ? new Date(startdate.getFullYear(), 11, 31)
-                : new Date(startdate.getFullYear(), date.getMonth() + 1, 0);
+            const enddate = new Date(startdate.getFullYear(), date.getMonth() + 1, 0);
 
             page.setValue({
                 fieldId: 'custpage_enddate',
@@ -148,162 +133,47 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             });
         }
 
-        if (context.fieldId === 'custcol_agency_mf_media_quantity_1') {
-            const soListId = context.sublistId;
-            const soline = context.line;
-
-            console.info('salesorder changed... ' + soListId + ' line# ' + soline);
-            const value = page.getSublistValue({
-                sublistId: soListId,
-                fieldId: 'custcol_agency_mf_media_quantity_1',
-                line: soline
-            });
-            const thisId = getInternalId(soListId, soline);
-            // add to list of edited records for later save if nonzero value entered, otherwise ignore
-            if (typeof value === 'number' && value > 0) {
-                addToEditLog(soListId, soline, 'custcol_agency_mf_media_quantity_1');
-            } else {
-                // remove from save updates
-                var fieldIndex = editfields.findIndex(function(field) {
-                    return (field.sublistId === soListId
-                        && field.fieldId === 'custcol_agency_mf_media_quantity_1'
-                        && field.line === soline
-                    );
-                });
-                if (fieldIndex !== -1) editfields.splice(fieldIndex,1);
-                // remove from editlog
-                const thisIndex = page.getSublistValue({
-                    sublistId: soListId,
-                    fieldId: 'line',
-                    line: soline
-                });
-                var editRecIndex = editlog.findIndex(function(entry) {
-                    return entry.id === thisId;
-                });
-                if (editRecIndex !== -1) {
-                    var editLineIndex = editlog[editRecIndex].lines.findIndex(function(l) {
-                        return l.index === thisIndex;
-                    });
-                    if (editLineIndex !== -1) editlog[editRecIndex].lines.splice(editLineIndex,1);
-                }
-            }
-        }
-
         // Updates for weighted and forecast calcs when line items change
-        if (context.fieldId === 'custcolforecast_inclusion'
-            || context.fieldId === 'probability' 
-            || context.fieldId === 'amount') {
+        if (context.fieldId === 'custrecord_revenue_forecast_forecasted'
+            || context.fieldId === 'custrecord_revenue_forecast_probability') {
             
             const sublistId = context.sublistId;
             const line = context.line;
 
-            console.info('forecast changed... ' + sublistId + ' line# ' + line);
+            console.info('forecast changed... ' + sublistId + ' line# ' + line + ' fieldId ' + context.fieldId);
             addToEditLog(sublistId, line, context.fieldId); // add to list of edited records for later save
 
-            var weighted = page.getSublistValue({
+            // Now update the Projected
+            const sold = page.getSublistValue({
                 sublistId: sublistId,
-                fieldId: 'custpage_weighted',
+                fieldId: 'custrecord_revenue_forecast_sold',
                 line: line
             });
-            var calcweighted = page.getValue({fieldId: 'custpage_calcweight'});
-            const gross = page.getSublistValue({
+            const forecasted = page.getSublistValue({
                 sublistId: sublistId,
-                fieldId: 'amount',
+                fieldId: 'custrecord_revenue_forecast_forecasted',
                 line: line
             });
-            var calcgross = page.getValue({fieldId: 'custpage_calcgross'});
-            const checked = page.getSublistValue({
+            const probability = page.getSublistValue({
                 sublistId: sublistId,
-                fieldId: 'custcolforecast_inclusion',
+                fieldId: 'custrecord_revenue_forecast_probability',
                 line: line
             });
-            if (context.fieldId === 'custcolforecast_inclusion') {
-                // add or remove gross and weighted for forecast checkbox action
-                if (checked) {
-                    calcweighted += weighted;
-                    calcgross += gross;
-                    page.setValue({fieldId: 'custpage_calcweight', value: calcweighted.toFixed(2)});
-                    page.setValue({fieldId: 'custpage_calcgross', value: calcgross.toFixed(2)});
-                } else {
-                    calcweighted -= weighted;
-                    calcgross -= gross;
-                    page.setValue({fieldId: 'custpage_calcweight', value: calcweighted.toFixed(2)});
-                    page.setValue({fieldId: 'custpage_calcgross', value: calcgross.toFixed(2)});
-                }
-            } else { // line item change via either probability or gross
-                console.info('item amount change...');
-                const probability = page.getSublistValue({
-                    sublistId: sublistId,
-                    fieldId: 'probability',
-                    line: line
-                });
-                const probnum = (parseFloat(probability)/100);
 
-                var updatelines = [];
-                var grossDelta = 0;
-                if (context.fieldId === 'amount') {
-                    // use the old weighted and probability to find the old gross
-                    const oldgross = weighted/probnum;
-                    grossDelta = gross - oldgross;
-                    updatelines = [line];
-                } else { // build an array of common transacation record lines to update probability
-                    const tranid = page.getSublistValue({
-                        sublistId: sublistId,
-                        fieldId: 'tranid',
-                        line: line
-                    }).replace(/<[^>]*>/g, '');
-                    const numlines = page.getLineCount({sublistId: sublistId});
-                    for (var i = 0; i < numlines; i++) {
-                        var id = page.getSublistValue({
-                            sublistId: sublistId,
-                            fieldId: 'tranid',
-                            line: i
-                        }).replace(/<[^>]*>/g, '');
-                        if (id === tranid) updatelines.push(i);
-                    }
-                }
-                // update each line (just one for gross change)
-                updatelines.forEach(function(row) {
-                    var oldweighted = page.getSublistValue({
-                        sublistId: sublistId,
-                        fieldId: 'custpage_weighted',
-                        line: row
-                    });
-                    const rowgross = page.getSublistValue({
-                        sublistId: sublistId,
-                        fieldId: 'amount',
-                        line: row
-                    });
-                    var newWeighted = (rowgross*probnum);
-                    if (checked) {
-                        var weightDelta = newWeighted - oldweighted;
-                        calcweighted += weightDelta;
-                    }
-                    // update line item weighted and probability
-                    page.selectLine({sublistId: sublistId, line: row});
-                    page.setCurrentSublistValue({
-                        sublistId: sublistId,
-                        fieldId: 'probability',
-                        value: probability,
-                        ignoreFieldChange: true
-                    });
-                    page.setCurrentSublistValue({
-                        sublistId: sublistId,
-                        fieldId: 'custpage_weighted',
-                        value: newWeighted.toFixed(2),
-                        ignoreFieldChange: true
-                    });
-                    page.commitLine({sublistId: sublistId});
-                });
-                // update the forecast calculation if included via line item check
-                if (checked) {
-                    page.setValue({fieldId: 'custpage_calcweight', value: calcweighted.toFixed(2)});
-                    if (grossDelta !== 0) {
-                        calcgross += grossDelta;
-                        page.setValue({fieldId: 'custpage_calcgross', value: calcgross.toFixed(2)});
-                    }
-                }
-            }
+            const probnum = (parseFloat(probability)/100);
+
+            const projected = sold + (forecasted*probnum);
+
+            // update projected
+            page.selectLine({sublistId: sublistId, line: line});
+            page.setCurrentSublistValue({
+                sublistId: sublistId,
+                fieldId: 'custrecord_revenue_forecast_projected',
+                value: projected,
+                ignoreFieldChange: true
+            });
+            page.commitLine({sublistId: sublistId});
+            addToEditFields(sublistId, line, 'custrecord_revenue_forecast_projected', projected);
         }
     }
 
@@ -322,10 +192,6 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
         filteredURL.searchParams.set('property', property);
         filteredURL.searchParams.set('startdate', startdate);
         filteredURL.searchParams.set('enddate', enddate);
-
-        filteredURL.searchParams.delete('worstcase');
-        filteredURL.searchParams.delete('mostlikely');
-        filteredURL.searchParams.delete('upside');
 
         window.location.replace(filteredURL);
     }
@@ -364,12 +230,17 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
     }
 
     function getInternalId(sublistId, line) {
-        const tranid = page.getSublistValue({
+        const revenue_record_id = page.getSublistValue({
             sublistId: sublistId,
-            fieldId: 'tranid',
+            fieldId: 'scriptid',
             line: line
-        })
-        return getIDfromHTML(tranid);
+        });
+        if (revenue_record_id == 0) {
+            var newRecId = 'new_record_';
+            newRecId += line;
+            return newRecId;
+        }
+        return revenue_record_id;
     }
 
     function getIDfromHTML(html){
