@@ -6,8 +6,9 @@ define([
     "N/ui/serverWidget",
     "N/record",
     "N/log",
+    "N/runtime",
     "../sales-forecast/FCUtil"
-], function (s, url, task, format, ui, record, log, FCUtil) {
+], function (s, url, task, format, ui, record, log, runtime, FCUtil) {
 
     /**
      * Revenue Forecast Suitelet: Improved revenue forecaster for ACBM
@@ -86,8 +87,8 @@ define([
     const advertiserIndex = {};
     const calcs = {};
 
-    var salesrepResultList = []
-    var propertyResultList = []
+    var salesrepResultList = [];
+    var propertyResultList = [];
 
     function onRequest(context) {
         log.audit({title: 'Loading Revenue Suitelet...'});
@@ -101,11 +102,19 @@ define([
         const page = ui.createForm({
             title: displayTitle
         });
-
+        
         let filter = getFilter(context.request);
         filterOptionsSection(page, filter);
         // TODO use better
-        if (!filter.salesrep) filter.salesrep = salesrepResultList[0].id;
+        if (!filter.salesrep) {
+            const user = runtime.getCurrentUser();
+            const userId = 160;
+            log.debug({title: 'logged in user', details: JSON.stringify(user)});
+            filter.salesrep = (salesrepResultList.map(sr => sr.id).includes(userId))
+                ? userId
+                : salesrepResultList[0].id;
+        }
+
         if (!filter.property) filter.property = propertyResultList[0].id;
 
         page.clientScriptModulePath = "./revenue-forecast-cl.js";
@@ -131,6 +140,9 @@ define([
 
         // log.debug({title: 'filledIndex', details: JSON.stringify(advertiserIndex)});
 
+        const quota = 0; // TODO replace with search for quota given rep, prop, month
+        calcSection(page, quota);
+
         // run searches that build sublists in display
         productGroups.forEach(group => {
             renderList(page, group);
@@ -155,6 +167,14 @@ define([
             container: 'custpage_filtergroup'
         });
         salesrepResultList = FCUtil.getSalesReps(salesRepSearchField, filter.salesrep);
+        if (!filter.salesrep) {
+            const user = runtime.getCurrentUser();
+            const userId = user.id;
+            const isSalesRep = (salesrepResultList.map(sr => sr.id).includes(userId));
+            // log.debug({title: 'logged in user', details: JSON.stringify(user)});
+            filter.salesrep = isSalesRep ? userId : salesrepResultList[0].id;
+            if (isSalesRep) salesRepSearchField.defaultValue = userId;
+        }
 
         const propertySearchField = page.addField({
             id: 'custpage_property',
@@ -183,6 +203,39 @@ define([
         });
         endDateField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
         endDateField.defaultValue = filter.enddate;
+    }
+
+    function calcSection(page, quota) {
+        page.addFieldGroup({
+            id : 'custpage_calcsgroup',
+            label : 'Revenue Calcs'
+        });
+
+        const quotaField = page.addField({
+            id: 'custpage_quota',
+            label: 'Quota',
+            type: ui.FieldType.CURRENCY,
+            container: 'custpage_calcsgroup'
+        });
+        quotaField.defaultValue = quota;
+        quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+
+        const bookedField = page.addField({
+            id: 'custpage_booked',
+            label: 'Booked %',
+            type: ui.FieldType.PERCENT,
+            container: 'custpage_calcsgroup'
+        });
+        let totalSales = 0;
+        for (let group in calcs) {
+            totalSales += calcs[group].sold;
+        }
+        if (quota) bookedField.defaultValue = ((totalSales/quota)*100).toFixed(2);
+
+        bookedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+        bookedField.updateBreakType({
+            breakType : ui.FieldBreakType.STARTCOL
+        });
     }
 
     function fillProductGroups() {
@@ -239,7 +292,10 @@ define([
         const columns = [
             'custrecord_revenue_forecast_advertiser',
             'custrecord_revenue_forecast_type',
-            'custrecord_revenue_forecast_sold',
+            s.createColumn({
+                name: 'custrecord_revenue_forecast_sold',
+                sort: s.Sort.DESC
+            }),
             'custrecord_revenue_forecast_forecasted',
             'custrecord_revenue_forecast_probability',
             s.createColumn({

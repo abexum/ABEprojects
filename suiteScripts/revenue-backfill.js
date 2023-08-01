@@ -57,11 +57,8 @@ define([
         },
     };
 
-    const productGroups = [];
-
     const salesrepList = [];
     const propertyList = [];
-    const advertiserCache = {};
 
     function execute(context) {
         log.audit({title: 'Running Revenue Forecast Backfill...'});
@@ -72,7 +69,7 @@ define([
         s.create({
             type: s.Type.EMPLOYEE,
             columns: ['issalesrep'],
-            filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
+        filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
                 ['isinactive', s.Operator.IS, ['F']]
             ]
         }).run().each(res => {
@@ -146,7 +143,7 @@ define([
             calcs[date][salesrep][advertiser][property][group].sold += grossnum;            
         };
 
-        FCUtil.dateIndex(filter, 3).forEach(dateObj => {
+        FCUtil.dateIndex(filter, 1).forEach(dateObj => {
             let { month, year } = dateObj;
             let dateStr = (month + 1)+'/1/'+year;
             let filters = {};
