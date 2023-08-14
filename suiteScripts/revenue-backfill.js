@@ -3,8 +3,10 @@ define([
     "N/record",
     "N/runtime",
     "N/log",
+    "N/task",
+    "N/format",
     "../sales-forecast/FCUtil"
-], function (s, record, runtime, log, FCUtil) {
+], function (s, record, runtime, log, task, format, FCUtil) {
 
     /**
      * Backfill task to populate Revenue Forecast custom records
@@ -59,6 +61,7 @@ define([
 
     const salesrepList = [];
     const propertyList = [];
+    const backfillMonthTotal = 1;
 
     function execute(context) {
         log.audit({title: 'Running Revenue Forecast Backfill...'});
@@ -92,14 +95,39 @@ define([
         });
 
         fullRecordedSearch(filter);
-    }
 
+        // rerun the task until a year is covered
+        const now = new Date();
+        const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const nextBackfillDate = new Date(filter.startdate.getFullYear(), filter.startdate.getMonth() + backfillMonthTotal, 1);
+        const timeDiffDays = Math.round((nextBackfillDate-firstOfMonth) / (1000*60*60*24));
+        
+        log.audit({
+            title: 'time diff to next task in days',
+            details: timeDiffDays
+        });
+
+        if (timeDiffDays < 365) {
+            const nsNextDate = format.format({value: nextBackfillDate, type: format.Type.DATE});
+            const nextBackfillTask = task.create({
+                taskType: task.TaskType.SCHEDULED_SCRIPT,
+                params: {'custscript_revbackfill_startdate': nsNextDate},
+                scriptId: 'customscript_revenue_backfill'
+            });
+            const taskId = nextBackfillTask.submit();
+            log.audit({
+                title: 'backlog task ID for ' + JSON.stringify(nsNextDate),
+                details: taskId
+            });
+        }
+    }
 
 
     function getFilter() {
         const startdate = runtime.getCurrentScript().getParameter({name: 'custscript_revbackfill_startdate'});
         const startValue = startdate || new Date();
-        log.debug({title: 'get filter...'});
+
         return {
             startdate: startValue,
         }
@@ -127,8 +155,6 @@ define([
     }
 
     function fullRecordedSearch(filter) {
-        log.debug({title: 'full record search...'});
-        
         const incrementCalcs = (res, date) => {
             let salesrep = res.getValue({name: 'salesrep'});
             let property = res.getValue({name: 'class'});
@@ -143,7 +169,7 @@ define([
             calcs[date][salesrep][advertiser][property][group].sold += grossnum;            
         };
 
-        FCUtil.dateIndex(filter, 1).forEach(dateObj => {
+        FCUtil.dateIndex(filter, backfillMonthTotal).forEach(dateObj => {
             let { month, year } = dateObj;
             let dateStr = (month + 1)+'/1/'+year;
             let filters = {};
@@ -174,6 +200,12 @@ define([
         updateRecords();
     }
 
+    function checkNested(obj, level,  ...rest) {
+        if (obj === undefined) return false
+        if (rest.length == 0 && obj.hasOwnProperty(level)) return true
+        return checkNested(obj[level], ...rest)
+    }
+
     function updateRecords() {
 
         const cleanupMode = 0;
@@ -195,73 +227,90 @@ define([
             let year = dat.split('/')[2];
             let dateObj = new Date(year, month, 1);
 
+            // TODO loop through the existing records
+            // update the sold to 0 if not found in calcs
+            // update with sold from calcs if different
+            // delete from the calcs index
+
+            const datefilter = s.createFilter({
+                name: 'custrecord_revenue_forecast_date',
+                operator: s.Operator.ON,
+                values: nsDate
+            });
+
+            s.create({
+                type: 'customrecord_revenue_forecast',
+                filters: datefilter,
+                columns: [
+                    'custrecord_revenue_forecast_sold',
+                    'custrecord_revenue_forecast_salesrep',
+                    'custrecord_revenue_forecast_property',
+                    'custrecord_revenue_forecast_advertiser',
+                    'custrecord_revenue_forecast_type'
+                ]
+            }).run().each(res => {
+                let resTotal = res.getValue({name: 'custrecord_revenue_forecast_sold'});
+                let resSalesrep = res.getValue({name: 'custrecord_revenue_forecast_salesrep'});
+                let resProp = res.getValue({name: 'custrecord_revenue_forecast_property'});
+                let resAdv = res.getValue({name: 'custrecord_revenue_forecast_advertiser'});
+                let resGrp = res.getValue({name: 'custrecord_revenue_forecast_type'});
+
+                // Update sold value if not matching calculated, set to zero if not found in calcs
+                if (checkNested(calcs, dat, resSalesrep, resAdv, resProp, resGrp)) {
+                    let calcSold = calcs[dat][resSalesrep][resAdv][resProp][resGrp].sold || 0;
+                    if (calcSold !== resTotal) {
+                        let resRecord = record.load({type: 'customrecord_revenue_forecast', id: res.id});
+                        resRecord.setValue({
+                            fieldId: 'custrecord_revenue_forecast_sold',
+                            value: calcSold
+                        });
+                        resRecord.save();
+                    }
+                    // remove the calc so a new record will not be created in nested loops
+                    delete calcs[dat][resSalesrep][resAdv][resProp][resGrp];
+                } else {
+                    let resRecordNoSales = record.load({type: 'customrecord_revenue_forecast', id: res.id});
+                    resRecordNoSales.setValue({
+                        fieldId: 'custrecord_revenue_forecast_sold',
+                        value: 0
+                    });
+                    resRecordNoSales.save();
+                }
+                return true;
+            });
+
+            // Create new records as needed
             Object.keys(calcs[dat]).forEach(rep => {
                 Object.keys(calcs[dat][rep]).forEach(adv => {
                     Object.keys(calcs[dat][rep][adv]).forEach(prop => {
-
-                        let filter = FCUtil.revSearchFilter(nsDate, rep, prop);
-                        let advertiserFilter = s.createFilter({
-                            name: 'custrecord_revenue_forecast_advertiser',
-                            operator: s.Operator.ANYOF,
-                            values: adv
-                        });
-                        filter.push(advertiserFilter);
                         Object.keys(calcs[dat][rep][adv][prop]).forEach(grp => {
 
                             let totalSold = calcs[dat][rep][adv][prop][grp].sold;
 
-                            let typeFilter = s.createFilter({
-                                name: 'custrecord_revenue_forecast_type',
-                                operator: s.Operator.ANYOF,
-                                values: grp
+                            let revRecord = record.create({type: 'customrecord_revenue_forecast'});
+
+                            log.debug({title: 'making new record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
+                            
+                            revRecord.setValue({
+                                fieldId: 'custrecord_revenue_forecast_date',
+                                value: dateObj
                             });
-                            filter.push(typeFilter);
-
-                            let foundRecordId = null;
-                            let foundTotal = null;
-
-                            if (!cleanupMode) {
-                                s.create({
-                                    type: 'customrecord_revenue_forecast',
-                                    filters: filter,
-                                    columns: ['custrecord_revenue_forecast_sold']
-                                }).run().each(res => {
-                                    foundRecordId = res.id;
-                                    foundTotal = res.getValue({name: 'custrecord_revenue_forecast_sold'});
-                                    return false;
-                                });
-                            }
-
-                            if (foundTotal === totalSold) return; // no need to update
-
-                            let revRecord = (foundRecordId !== null)
-                                ? record.load({type: 'customrecord_revenue_forecast', id: foundRecordId})
-                                : record.create({type: 'customrecord_revenue_forecast'});
-
-                            if (foundRecordId === null) {
-                                // log.debug({title: 'making new record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
-                                
-                                revRecord.setValue({
-                                    fieldId: 'custrecord_revenue_forecast_date',
-                                    value: dateObj
-                                });
-                                revRecord.setValue({
-                                    fieldId: 'custrecord_revenue_forecast_salesrep',
-                                    value: rep
-                                });
-                                revRecord.setValue({
-                                    fieldId: 'custrecord_revenue_forecast_property',
-                                    value: prop
-                                });
-                                revRecord.setValue({
-                                    fieldId: 'custrecord_revenue_forecast_advertiser',
-                                    value: adv
-                                });
-                                revRecord.setValue({
-                                    fieldId: 'custrecord_revenue_forecast_type',
-                                    value: grp
-                                });
-                            }
+                            revRecord.setValue({
+                                fieldId: 'custrecord_revenue_forecast_salesrep',
+                                value: rep
+                            });
+                            revRecord.setValue({
+                                fieldId: 'custrecord_revenue_forecast_property',
+                                value: prop
+                            });
+                            revRecord.setValue({
+                                fieldId: 'custrecord_revenue_forecast_advertiser',
+                                value: adv
+                            });
+                            revRecord.setValue({
+                                fieldId: 'custrecord_revenue_forecast_type',
+                                value: grp
+                            });
 
                             revRecord.setValue({
                                 fieldId: 'custrecord_revenue_forecast_sold',

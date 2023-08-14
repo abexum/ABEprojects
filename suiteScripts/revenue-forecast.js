@@ -82,6 +82,8 @@ define([
     ];
 
     var editedFields = [];
+    var runTheQuotaUpdateTask = true;
+    const adminTask = () => FCUtil.adminTask();
 
     const productGroups = [];
     const advertiserIndex = {};
@@ -104,6 +106,10 @@ define([
         });
         
         let filter = getFilter(context.request);
+
+        // keep quotas up to date when tool is first opened
+        if (runTheQuotaUpdateTask && adminTask()) refreshQuotaResults();
+
         filterOptionsSection(page, filter);
         // TODO use better
         if (!filter.salesrep) {
@@ -140,7 +146,7 @@ define([
 
         // log.debug({title: 'filledIndex', details: JSON.stringify(advertiserIndex)});
 
-        const quota = 0; // TODO replace with search for quota given rep, prop, month
+        const quota = getQuotaCSVtotal(filter); // TODO replace with search for quota given rep, prop, month
         calcSection(page, quota);
 
         // run searches that build sublists in display
@@ -151,6 +157,43 @@ define([
         context.response.writePage({
             pageObject: page
         });
+    }
+
+    function getQuota(filter) {
+        let searchFilter = [];
+
+        const dateFilter = s.createFilter({
+            name: 'Quota_DATE',
+            operator: s.Operator.ON,
+            values: filter.startdate
+        });
+        searchFilter.push(dateFilter);
+
+        const repFilter = s.createFilter({
+            name: 'Quota_SALESREP',
+            operator: s.Operator.ANYOF,
+            values: filter.salesrep
+        });
+        searchFilter.push(repFilter);
+    
+
+        const propertyFilter = s.createFilter({
+            name: 'Quota_CLASS',
+            operator: s.Operator.ANYOF,
+            values: filter.property
+        });
+        searchFilter.push(propertyFilter);
+
+        s.create({
+            type: 'Quota',
+            filters: searchFilter,
+            columns: ['id', 'salesrep', 'year', 'amountmonthly', 'date']
+        }).run().each(res => {
+            const resStr = JSON.stringify(res);
+            log.debug({title: 'quota search result : ' + res.id, details: resStr});
+            return true;
+        });
+        return 0;
     }
 
     function filterOptionsSection(page, filter) {
@@ -499,6 +542,93 @@ define([
 
         return list;
     }
+
+    function getQuotaCSVtotal(filter) {
+        const quotaCSV = FCUtil.grabFile('quotaResults.csv');
+        if (!quotaCSV) {
+            refreshQuotaResults();
+            return 0;
+        }
+
+        const lessInfo = (moreInfo) => {
+            const { salesrep, property, date, amountmonthly } = moreInfo;
+            const lessismore = { 
+                salesrep: salesrep,
+                property: property,
+                date: date,
+                amountmonthly: amountmonthly
+            };
+            return lessismore;
+        };
+        const csvObjs = FCUtil.processCSV(quotaCSV).map(obj => lessInfo(obj));
+
+        const quotas = filterCSVlines(csvObjs, filter);
+
+        // sum the remaining monthly amounts     
+        const quotaTotal = quotas.reduce((total, current) => numOr0(total) + numOr0(current.amountmonthly), 0);
+
+        return quotaTotal;
+    }
+
+    function filterCSVlines(csvObjs, filter) {
+        let filtered = [];
+        const { salesrep, property } = filter;
+        const repName = FCUtil.getRepName(salesrep);
+        const propertyName = FCUtil.getPropertyName(property);
+        const month = filter.startdate.getMonth();
+        const year = filter.startdate.getFullYear();
+
+        csvObjs.forEach(line => {
+            if (line.date) {
+                const date = new Date(line.date);
+                const hasYear = (year == date.getFullYear());
+                const hasMonth = filter.fullyear || (month == date.getMonth());
+                if (hasMonth && hasYear) {
+                    const hasRep = (repName && repName == line.salesrep);
+                    const hasProperty = (propertyName && propertyName == line.property)
+                    if (hasRep && hasProperty) filtered.push(line);
+                }
+            }
+        });
+        return filtered;
+    }
+
+    function refreshQuotaResults() {
+        log.audit({title: 'Refreshing Quota CSV...'});
+        // SEARCH TO GET SAVED SEARCH INTERNAL ID FOR TASK
+        let searchInternalId = '';
+        s.create({
+            type: s.Type.SAVED_SEARCH,
+            filters: [],
+            columns: ['id']
+        }).run().each(res => {
+            const resStr = JSON.stringify(res);
+            const scriptid = JSON.parse(resStr).values.id;
+            if (scriptid == 'customsearch_acbm_quota_search') {
+                log.debug({title: 'quotaSearchScriptID', details: scriptid});
+                log.debug({title: 'quotaSearchInternalID', details: res.id});
+                searchInternalId = res.id;
+                return false;
+            }
+            return true;
+        });
+
+        // SUBMIT TASK
+        if (searchInternalId) {
+            const quotaTask = task.create({taskType: task.TaskType.SEARCH});
+            quotaTask.savedSearchId = searchInternalId;
+            quotaTask.filePath = 'SuiteScripts/Suitelets/sales-forecast/quotaResults.csv';
+            const quotaTaskId = quotaTask.submit();
+            log.debug({title: 'quotaTaskId', details: quotaTaskId});
+        } else {
+            log.error({
+                title: 'Quota Task Error',
+                details: 'customsearch_acbm_quota_search not found, quotaResults.csv could not be built'
+            })
+        }
+    }
+
+    const numOr0 = n => isNaN(parseInt(n)) ? 0 : parseInt(n);
 
     exports.onRequest = onRequest;
     return exports;
