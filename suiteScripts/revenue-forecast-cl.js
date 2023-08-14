@@ -154,6 +154,11 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
                 fieldId: 'custrecord_revenue_forecast_forecasted',
                 line: line
             });
+            const oldProjected = page.getSublistValue({
+                sublistId: sublistId,
+                fieldId: 'custrecord_revenue_forecast_projected',
+                line: line
+            });
             const probability = page.getSublistValue({
                 sublistId: sublistId,
                 fieldId: 'custrecord_revenue_forecast_probability',
@@ -173,8 +178,16 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
                 ignoreFieldChange: true
             });
             page.commitLine({sublistId: sublistId});
-            addToEditFields(sublistId, line, 'custrecord_revenue_forecast_projected', projected);
+            addToEditFields(sublistId, line, 'custrecord_revenue_forecast_projected', projected.toFixed(2));
+
+            updateTotals(oldProjected, projected);
         }
+    }
+
+    function updateTotals(oldProjected, newProjected) {
+        const oldTotalProjected = page.getValue({fieldId: 'custpage_projected'});
+        const newTotalProjected = oldTotalProjected + (newProjected - oldProjected);
+        page.setValue({fieldId: 'custpage_projected', value: newTotalProjected.toFixed(2)});
     }
 
     function performSearch() {

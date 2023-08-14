@@ -183,10 +183,12 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
         return ''
     }
 
-    FCUtil.getSalesReps = (field, selected) => {
+    FCUtil.getSalesReps = (field, selected, requiredField = 0) => {
+
+        const emptyText = requiredField ? '-- Select Salesrep --' : '-- All --';
         field.addSelectOption({
             value: 0,
-            text: '-- All --',
+            text: emptyText,
             isSelected: false
         });
 
@@ -211,10 +213,11 @@ define(["N/search", "N/file", "N/format", "N/runtime", "N/record", "N/log"],
         return results;
     }
 
-    FCUtil.getProperties = (field, selected) => {
+    FCUtil.getProperties = (field, selected, requiredField = 0) => {
+        const emptyText = requiredField ? '-- Select Property --' : '-- All --';
         field.addSelectOption({
             value: 0,
-            text: '-- All --',
+            text: emptyText,
             isSelected: false
         });
 

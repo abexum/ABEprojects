@@ -62,6 +62,7 @@ define([
     const salesrepList = [];
     const propertyList = [];
     const backfillMonthTotal = 1;
+    const cleanupMode = 0;
 
     function execute(context) {
         log.audit({title: 'Running Revenue Forecast Backfill...'});
@@ -102,13 +103,13 @@ define([
 
         const nextBackfillDate = new Date(filter.startdate.getFullYear(), filter.startdate.getMonth() + backfillMonthTotal, 1);
         const timeDiffDays = Math.round((nextBackfillDate-firstOfMonth) / (1000*60*60*24));
-        
+
         log.audit({
             title: 'time diff to next task in days',
             details: timeDiffDays
         });
 
-        if (timeDiffDays < 365) {
+        if (timeDiffDays < 365 && !cleanupMode) {
             const nsNextDate = format.format({value: nextBackfillDate, type: format.Type.DATE});
             const nextBackfillTask = task.create({
                 taskType: task.TaskType.SCHEDULED_SCRIPT,
@@ -208,15 +209,26 @@ define([
 
     function updateRecords() {
 
-        const cleanupMode = 0;
         if (cleanupMode) {
             log.audit('Running in cleanup mode, will replace all existing data.');
             s.create({
-                type: 'customrecord_revenue_forecast'
+                type: 'customrecord_revenue_forecast',
+                columns: [
+                    'custrecord_revenue_forecast_forecasted',
+                    'custrecord_revenue_forecast_probability'
+                ]
             }).run().each(res => {
-                record.delete({type: 'customrecord_revenue_forecast', id: res.id});
+                let resForecasted = res.getValue({name: 'custrecord_revenue_forecast_forecasted'});
+                let resProb = res.getValue({name: 'custrecord_revenue_forecast_probability'});
+                if (resForecasted === '.00' && resProb === '0.0%') {
+                    log.debug({title: 'deleting forecast record', details: res.id});
+                    record.delete({type: 'customrecord_revenue_forecast', id: res.id});
+                }
                 return true;
             });
+            // cleanup mode just deletes records without salesrep input
+            // running a backfill after can cause usage limit exceed
+            return;
         }
 
         Object.keys(calcs).forEach(dat => {

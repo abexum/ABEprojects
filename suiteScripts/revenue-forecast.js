@@ -54,6 +54,11 @@ define([
             label: 'Primary Advertiser',
             type: ui.FieldType.TEXT
         },
+        {
+            id: 'lastmodifieddate',
+            label: 'Last Update',
+            type: ui.FieldType.DATE
+        },
         { 
             id: 'custrecord_revenue_forecast_sold',
             label: 'Sold',
@@ -147,53 +152,16 @@ define([
         // log.debug({title: 'filledIndex', details: JSON.stringify(advertiserIndex)});
 
         const quota = getQuotaCSVtotal(filter); // TODO replace with search for quota given rep, prop, month
-        calcSection(page, quota);
-
+        
         // run searches that build sublists in display
         productGroups.forEach(group => {
             renderList(page, group);
         });
+        calcSection(page, quota);
 
         context.response.writePage({
             pageObject: page
         });
-    }
-
-    function getQuota(filter) {
-        let searchFilter = [];
-
-        const dateFilter = s.createFilter({
-            name: 'Quota_DATE',
-            operator: s.Operator.ON,
-            values: filter.startdate
-        });
-        searchFilter.push(dateFilter);
-
-        const repFilter = s.createFilter({
-            name: 'Quota_SALESREP',
-            operator: s.Operator.ANYOF,
-            values: filter.salesrep
-        });
-        searchFilter.push(repFilter);
-    
-
-        const propertyFilter = s.createFilter({
-            name: 'Quota_CLASS',
-            operator: s.Operator.ANYOF,
-            values: filter.property
-        });
-        searchFilter.push(propertyFilter);
-
-        s.create({
-            type: 'Quota',
-            filters: searchFilter,
-            columns: ['id', 'salesrep', 'year', 'amountmonthly', 'date']
-        }).run().each(res => {
-            const resStr = JSON.stringify(res);
-            log.debug({title: 'quota search result : ' + res.id, details: resStr});
-            return true;
-        });
-        return 0;
     }
 
     function filterOptionsSection(page, filter) {
@@ -209,7 +177,7 @@ define([
             type: ui.FieldType.SELECT,
             container: 'custpage_filtergroup'
         });
-        salesrepResultList = FCUtil.getSalesReps(salesRepSearchField, filter.salesrep);
+        salesrepResultList = FCUtil.getSalesReps(salesRepSearchField, filter.salesrep, true);
         if (!filter.salesrep) {
             const user = runtime.getCurrentUser();
             const userId = user.id;
@@ -225,7 +193,7 @@ define([
             type: ui.FieldType.SELECT,
             container: 'custpage_filtergroup'
         });
-        propertyResultList = FCUtil.getProperties(propertySearchField, filter.property);
+        propertyResultList = FCUtil.getProperties(propertySearchField, filter.property, true);
 
         const startDateField = page.addField({
             id: 'custpage_startdate',
@@ -254,6 +222,31 @@ define([
             label : 'Revenue Calcs'
         });
 
+        let totalSales = 0;
+        let totalProjected = 0;
+        for (let group in calcs) {
+            totalSales += calcs[group].sold;
+            totalProjected += calcs[group].projected;
+        }
+
+        const soldField = page.addField({
+            id: 'custpage_sold',
+            label: 'Sold',
+            type: ui.FieldType.CURRENCY,
+            container: 'custpage_calcsgroup'
+        });
+        soldField.defaultValue = totalSales.toFixed(2);
+        soldField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+
+        const projectedField = page.addField({
+            id: 'custpage_projected',
+            label: 'Projected',
+            type: ui.FieldType.CURRENCY,
+            container: 'custpage_calcsgroup'
+        });
+        projectedField.defaultValue = totalProjected.toFixed(2);
+        projectedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+
         const quotaField = page.addField({
             id: 'custpage_quota',
             label: 'Quota',
@@ -262,6 +255,9 @@ define([
         });
         quotaField.defaultValue = quota;
         quotaField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
+        quotaField.updateBreakType({
+            breakType : ui.FieldBreakType.STARTCOL
+        });
 
         const bookedField = page.addField({
             id: 'custpage_booked',
@@ -269,16 +265,9 @@ define([
             type: ui.FieldType.PERCENT,
             container: 'custpage_calcsgroup'
         });
-        let totalSales = 0;
-        for (let group in calcs) {
-            totalSales += calcs[group].sold;
-        }
         if (quota) bookedField.defaultValue = ((totalSales/quota)*100).toFixed(2);
 
         bookedField.updateDisplayType({displayType: ui.FieldDisplayType.DISABLED});
-        bookedField.updateBreakType({
-            breakType : ui.FieldBreakType.STARTCOL
-        });
     }
 
     function fillProductGroups() {
@@ -311,16 +300,18 @@ define([
         const { salesrep, property } = filter;
         s.create({
             type: s.Type.CUSTOMER,
-            columns: ['companyname'],
+            columns: ['companyname', 'lastmodifieddate'],
             filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and',  
                 ['isinactive', s.Operator.IS, ['F']], 'and',
                 ['salesrep', s.Operator.ANYOF, [salesrep]], 'and',
                 ['custentity4', s.Operator.ANYOF, [property]]
             ]
         }).run().each(res => {
-            
+            let lastUpdate = res.getValue({name: 'lastmodifieddate'});
+            // log.debug({title: 'lastmodifieddate from search', details: lastUpdate});
+            // log.debug({title: 'lastmodifieddate TEXT from search', details: lastText});
             let name = res.getValue({name: 'companyname'});
-            checkAddIndex(res.id, name);
+            checkAddIndex(res.id, name, lastUpdate);
             return true;
         });
     }
@@ -374,10 +365,22 @@ define([
         });
     }
 
-    function checkAddIndex(advertiser, name) {
+    function checkAddIndex(advertiser, name, lastUpdate = '') {
         if (advertiserIndex[advertiser] === undefined) {
             advertiserIndex[advertiser] = {};
             advertiserIndex[advertiser].name = name;
+            if (lastUpdate == '') {
+                const custRec = record.load({
+                    type: 'customer',
+                    id: advertiser
+                });
+                const lastmodifieddate = custRec.getValue({
+                    fieldId: 'lastmodifieddate'
+                });
+                advertiserIndex[advertiser].lastUpdate = lastmodifieddate;
+            } else {
+                advertiserIndex[advertiser].lastUpdate = lastUpdate;
+            }
             productGroups.forEach(grp => {
                 advertiserIndex[advertiser][grp.id] = {};
                 advertiserIndex[advertiser][grp.id].recId = null;
@@ -451,6 +454,7 @@ define([
             let displayEntry = JSON.parse(JSON.stringify(advertiserIndex[adv][productGroup.id]));
             displayEntry.advertiser = adv;
             displayEntry.advertiserName = advertiserIndex[adv].name;
+            displayEntry.lastUpdate = advertiserIndex[adv].lastUpdate;
             advertiserResults.push(displayEntry);
         });
 
@@ -511,13 +515,32 @@ define([
                         && field.line === index
                     );
                 });
-                if (fieldIndex !== -1) value = editedFields[fieldIndex].value;
+                if (fieldIndex !== -1) {
+                    if (key == 'projected') {
+                        let valueDiff = editedFields[fieldIndex].value - value;
+                        calcs[productGroup.id].projected += valueDiff;
+                    }
+                    value = editedFields[fieldIndex].value;
+                }
 
                 if (key === 'recId') {
                     list.setSublistValue({
                         id: 'scriptid',
                         line: index,
                         value: value || 0
+                    });
+                    return;
+                }
+                if (key === 'lastUpdate') {
+                    log.debug('last modified date value : ' + value);
+                    let jsDate = (value) ? new Date(value) : new Date();
+                    let nsDate = jsDate.getMonth() + 1 + '/' + jsDate.getDate() + '/' + jsDate.getFullYear();
+                    log.debug({title: 'js date value', details: JSON.stringify(jsDate)});
+                    log.debug({title: 'ns date value', details: JSON.stringify(nsDate)});
+                    list.setSublistValue({
+                        id: 'lastmodifieddate',
+                        line: index,
+                        value: nsDate
                     });
                     return;
                 }
