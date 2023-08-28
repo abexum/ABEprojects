@@ -72,13 +72,15 @@ define([
         // add valid sales reps
         s.create({
             type: s.Type.EMPLOYEE,
-            columns: ['issalesrep'],
+            columns: ['entityid', 'issalesrep'],
         filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and', 
                 ['isinactive', s.Operator.IS, ['F']]
             ]
         }).run().each(res => {
-            if (res.id == 46725) return; // skip sales admin
-            if (res.getValue({name: 'issalesrep'})) salesrepList.push(res.id);
+            if (res.getValue({name: 'issalesrep'})) {
+                // log.debug('adding salesrep', res.getValue({name: 'entityid'}));
+                salesrepList.push(res.id);
+            }
             return true;
         });
 
@@ -233,7 +235,7 @@ define([
 
         Object.keys(calcs).forEach(dat => {
             let nsDate = FCUtil.getFirstOfMonthNsDateFromString(dat);
-            log.debug({title: 'nsDATE', details: JSON.stringify(nsDate)});
+            // log.debug({title: 'nsDATE', details: JSON.stringify(nsDate)});
 
             let month = dat.split('/')[0] - 1;
             let year = dat.split('/')[2];
@@ -301,7 +303,7 @@ define([
 
                             let revRecord = record.create({type: 'customrecord_revenue_forecast'});
 
-                            log.debug({title: 'making new record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
+                            // log.debug({title: 'making new record...', details: dat + ' ' + rep + ' ' + prop + ' ' + adv + ' ' + grp + ' ' + totalSold});
                             
                             revRecord.setValue({
                                 fieldId: 'custrecord_revenue_forecast_date',

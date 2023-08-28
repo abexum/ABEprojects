@@ -116,15 +116,6 @@ define([
         if (runTheQuotaUpdateTask && adminTask()) refreshQuotaResults();
 
         filterOptionsSection(page, filter);
-        // TODO use better
-        if (!filter.salesrep) {
-            const user = runtime.getCurrentUser();
-            const userId = 160;
-            log.debug({title: 'logged in user', details: JSON.stringify(user)});
-            filter.salesrep = (salesrepResultList.map(sr => sr.id).includes(userId))
-                ? userId
-                : salesrepResultList[0].id;
-        }
 
         if (!filter.property) filter.property = propertyResultList[0].id;
 
@@ -178,11 +169,12 @@ define([
             container: 'custpage_filtergroup'
         });
         salesrepResultList = FCUtil.getSalesReps(salesRepSearchField, filter.salesrep, true);
+
         if (!filter.salesrep) {
             const user = runtime.getCurrentUser();
             const userId = user.id;
             const isSalesRep = (salesrepResultList.map(sr => sr.id).includes(userId));
-            // log.debug({title: 'logged in user', details: JSON.stringify(user)});
+
             filter.salesrep = isSalesRep ? userId : salesrepResultList[0].id;
             if (isSalesRep) salesRepSearchField.defaultValue = userId;
         }
@@ -308,8 +300,6 @@ define([
             ]
         }).run().each(res => {
             let lastUpdate = res.getValue({name: 'lastmodifieddate'});
-            // log.debug({title: 'lastmodifieddate from search', details: lastUpdate});
-            // log.debug({title: 'lastmodifieddate TEXT from search', details: lastText});
             let name = res.getValue({name: 'companyname'});
             checkAddIndex(res.id, name, lastUpdate);
             return true;
@@ -505,7 +495,6 @@ define([
         });
 
         advertiserResults.forEach((res, index) => {
-            // log.debug({title: 'checking result into display : ' + index, details: JSON.stringify(res)});
             Object.keys(res).forEach(key => {
                 let value = res[key];
                 // if field was edited update with the new value rather than one found in search
@@ -532,11 +521,8 @@ define([
                     return;
                 }
                 if (key === 'lastUpdate') {
-                    log.debug('last modified date value : ' + value);
                     let jsDate = (value) ? new Date(value) : new Date();
                     let nsDate = jsDate.getMonth() + 1 + '/' + jsDate.getDate() + '/' + jsDate.getFullYear();
-                    log.debug({title: 'js date value', details: JSON.stringify(jsDate)});
-                    log.debug({title: 'ns date value', details: JSON.stringify(nsDate)});
                     list.setSublistValue({
                         id: 'lastmodifieddate',
                         line: index,
