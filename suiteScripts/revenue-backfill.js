@@ -290,7 +290,7 @@ define([
                         fieldId: 'custrecord_revenue_forecast_sold',
                         value: 0
                     });
-                    if (!resRecordNoSales.getValue({fieldId: 'custrecord_rev_parent'})) adoptRecord(resRecord, resAdv, resProp);
+                    if (!resRecordNoSales.getValue({fieldId: 'custrecord_rev_parent'})) adoptRecord(resRecordNoSales, resAdv, resProp);
                     resRecordNoSales.save();
                 }
                 return true;
