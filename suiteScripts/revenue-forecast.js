@@ -218,6 +218,7 @@ define([
         let totalProjected = 0;
         for (let group in calcs) {
             totalSales += calcs[group].sold;
+            if (isNaN(calcs[group].projected)) continue;
             totalProjected += calcs[group].projected;
         }
 
@@ -383,9 +384,12 @@ define([
     }
 
     function incrementCalcs(sold, forecasted, projected, type) {
-        calcs[type].sold += parseFloat(sold);
-        calcs[type].forecasted += parseFloat(forecasted);
-        calcs[type].projected += parseFloat(projected);
+        sold = parseFloat(sold);
+        forecasted = parseFloat(forecasted);
+        projected = parseFloat(projected);
+        if (!isNaN(sold)) calcs[type].sold += sold;
+        if (!isNaN(forecasted)) calcs[type].forecasted += forecasted;
+        if (!isNaN(projected)) calcs[type].projected += projected;
     };
 
     function getFilter(request) {

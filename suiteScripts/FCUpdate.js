@@ -1,4 +1,3 @@
-
 define(["N/runtime", "N/record", "N/log"],
 function (runtime, record, log) {
 

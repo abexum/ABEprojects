@@ -61,6 +61,7 @@ define([
 
     const salesrepList = [];
     const propertyList = [];
+    const summaryLibrary = {};
     const backfillMonthTotal = 1;
     const cleanupMode = 0;
 
@@ -278,6 +279,7 @@ define([
                             fieldId: 'custrecord_revenue_forecast_sold',
                             value: calcSold
                         });
+                        if (!resRecord.getValue({fieldId: 'custrecord_rev_parent'})) adoptRecord(resRecord, resAdv, resProp);
                         resRecord.save();
                     }
                     // remove the calc so a new record will not be created in nested loops
@@ -288,6 +290,7 @@ define([
                         fieldId: 'custrecord_revenue_forecast_sold',
                         value: 0
                     });
+                    if (!resRecordNoSales.getValue({fieldId: 'custrecord_rev_parent'})) adoptRecord(resRecord, resAdv, resProp);
                     resRecordNoSales.save();
                 }
                 return true;
@@ -331,6 +334,8 @@ define([
                                 value: totalSold
                             });
 
+                            adoptRecord(revRecord, adv, prop, grp)
+
                             revRecord.save();
                             return;
                         });
@@ -338,6 +343,65 @@ define([
                 });
             });
         });
+
+        function adoptRecord(childRecord, advertiser, property) {
+            let parentRecord = findParent(advertiser, property);
+            childRecord.setValue({                                
+                fieldId: 'custrecord_rev_parent',
+                value: parentRecord
+            });
+        }
+
+        function findParent(advertiser, property) {
+            // Use parent record id previously found and added to library
+            if (summaryLibrary[advertiser] !== undefined 
+                && summaryLibrary[advertiser][property]) {
+                return summaryLibrary[advertiser][property];
+            }
+
+            // Find existing parent record
+            let parentRecord = null;
+            let parentFilter = [];
+            const advFilter = s.createFilter({
+                name: 'custrecord_rev_sum_primary_adv',
+                operator: s.Operator.IS,
+                values: advertiser
+            });
+            const propFilter = s.createFilter({
+                name: 'custrecord_rev_sum_property',
+                operator: s.Operator.IS,
+                values: property
+            });
+            parentFilter.push(advFilter);
+            parentFilter.push(propFilter);
+
+            s.create({
+                type:'customrecord_revenue_summary',
+                filters: parentFilter
+            }).run().each(res => {
+                parentRecord = res.id;
+                if (!summaryLibrary[advertiser]) summaryLibrary[advertiser] = {};
+                summaryLibrary[advertiser][property] = res.id;
+                return false;
+            });
+
+            if (parentRecord !== null) return parentRecord;
+
+            // Create new parent record
+            parentRecord = record.create({type:'customrecord_revenue_summary'});
+            parentRecord.setValue({
+                fieldId: 'custrecord_rev_sum_primary_adv',
+                value: advertiser
+            });
+            parentRecord.setValue({
+                fieldId: 'custrecord_rev_sum_property',
+                value: property
+            });
+            let parentId = parentRecord.save();
+            if (!summaryLibrary[advertiser]) summaryLibrary[advertiser] = {};
+            summaryLibrary[advertiser][property] = parentId;
+            return parentId;
+        }
     }
 
     exports.execute = execute;

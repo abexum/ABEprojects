@@ -186,7 +186,9 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
 
     function updateTotals(oldProjected, newProjected) {
         const oldTotalProjected = page.getValue({fieldId: 'custpage_projected'});
+        //console.info('type of stuff ' + typeof oldProjected + typeof newProjected + typeof oldTotalProjected);
         const newTotalProjected = oldTotalProjected + (newProjected - oldProjected);
+        //console.info('type of new total ' + typeof newTotalProjected);
         page.setValue({fieldId: 'custpage_projected', value: newTotalProjected.toFixed(2)});
     }
 
