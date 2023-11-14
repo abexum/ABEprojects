@@ -55,9 +55,9 @@ define([
             type: ui.FieldType.TEXT
         },
         {
-            id: 'lastmodifieddate',
-            label: 'Last Update',
-            type: ui.FieldType.DATE
+            id: 'custrecord_revenue_forecast_threeyr',
+            label: 'Three Year Sales',
+            type: ui.FieldType.CURRENCY
         },
         { 
             id: 'custrecord_revenue_forecast_sold',
@@ -84,6 +84,39 @@ define([
             label: 'revenue forecast record',
             type: ui.FieldType.INTEGER
         }
+    ];
+
+    const summaryColumns = [
+        { 
+            id: 'custrecord_legacy_print_3yr',
+            join: 'custrecord_rev_parent',
+            typeId: 1
+        },
+        { 
+            id: 'custrecord_legacy_digital_3yr',
+            join: 'custrecord_rev_parent',
+            typeId: 2
+        },
+        { 
+            id: 'custrecord_demand_gen_3yr',
+            join: 'custrecord_rev_parent',
+            typeId: 3
+        },
+        { 
+            id: 'custrecord_events_3yr',
+            join: 'custrecord_rev_parent',
+            typeId: 4
+        },
+        { 
+            id: 'custrecord_marketing_services_3yr',
+            join: 'custrecord_rev_parent',
+            typeId: 5
+        },
+        { 
+            id: 'custrecord_marketplace_3yr',
+            join: 'custrecord_rev_parent',
+            typeId: 6
+        },
     ];
 
     var editedFields = [];
@@ -129,7 +162,7 @@ define([
             id : 'custpage_saveButton',
             label : 'Save',
             functionName: 'save'
-        });  
+        });
         //saveButton.isDisabled = true;
 
         fillProductGroups();
@@ -289,20 +322,40 @@ define([
         });
     }
 
+    // search the summary records and join to the customer record
+    // add empty index for matching salesrep
     function emptyAdvertiserIndex(filter) {
         const { salesrep, property } = filter;
+
+        const searchFilter = [];
+        const propFilter = s.createFilter({
+            name: 'custrecord_rev_sum_property',
+            operator: s.Operator.IS,
+            values: property
+        });
+        searchFilter.push(propFilter);
+
+        const repFilter = s.createFilter({
+            name: 'salesrep',
+            operator: s.Operator.IS,
+            values: salesrep,
+            join: 'custrecord_rev_sum_primary_adv'
+        });
+        searchFilter.push(repFilter);
+
+        const searchColumns = ['custrecord_rev_sum_primary_adv'];
+        summaryColumns.forEach(col => {
+            let threeYrCol = s.createColumn({name: col.id});
+            searchColumns.push(threeYrCol);
+        });
         s.create({
-            type: s.Type.CUSTOMER,
-            columns: ['companyname', 'lastmodifieddate'],
-            filters: [['subsidiary', s.Operator.ANYOF, ['2']], 'and',  
-                ['isinactive', s.Operator.IS, ['F']], 'and',
-                ['salesrep', s.Operator.ANYOF, [salesrep]], 'and',
-                ['custentity4', s.Operator.ANYOF, [property]]
-            ]
+            type: 'customrecord_revenue_summary',
+            columns: searchColumns,
+            filters: searchFilter
         }).run().each(res => {
-            let lastUpdate = res.getValue({name: 'lastmodifieddate'});
-            let name = res.getValue({name: 'companyname'});
-            checkAddIndex(res.id, name, lastUpdate);
+            let name = res.getText({name: 'custrecord_rev_sum_primary_adv'});
+            let id = res.getValue({name: 'custrecord_rev_sum_primary_adv'});
+            checkAddIndex(id, name, res, true);
             return true;
         });
     }
@@ -329,24 +382,30 @@ define([
             })
         ];
 
+        summaryColumns.forEach(col => {
+            let threeYrCol = s.createColumn({
+                name: col.id,
+                join: col.join
+            });
+            columns.push(threeYrCol);
+        });
 
         s.create({
             type: 'customrecord_revenue_forecast',
             filters: advSearchFilter,
             columns: columns
         }).run().each(res => {
-            // type === productGroup
             let sold = res.getValue({name: 'custrecord_revenue_forecast_sold'});
             let forecasted = res.getValue({name: 'custrecord_revenue_forecast_forecasted'});
             let probability = res.getValue({name: 'custrecord_revenue_forecast_probability'});
             let projected = res.getValue({name: 'formulacurrency'});
             let type = res.getValue({name: 'custrecord_revenue_forecast_type'});
             incrementCalcs(sold, forecasted, projected, type);
-            // TODO check index for undefined
+
             let advertiser = res.getValue({name: 'custrecord_revenue_forecast_advertiser'});
             let advertiserName = res.getText({name: 'custrecord_revenue_forecast_advertiser'});
 
-            checkAddIndex(advertiser, advertiserName);
+            checkAddIndex(advertiser, advertiserName, res, false);
             advertiserIndex[advertiser][type].recId = res.id;
             advertiserIndex[advertiser][type].sold = sold;
             advertiserIndex[advertiser][type].forecasted = forecasted;
@@ -356,22 +415,10 @@ define([
         });
     }
 
-    function checkAddIndex(advertiser, name, lastUpdate = '') {
+    function checkAddIndex(advertiser, name, res, isSummary) {
         if (advertiserIndex[advertiser] === undefined) {
             advertiserIndex[advertiser] = {};
             advertiserIndex[advertiser].name = name;
-            if (lastUpdate == '') {
-                const custRec = record.load({
-                    type: 'customer',
-                    id: advertiser
-                });
-                const lastmodifieddate = custRec.getValue({
-                    fieldId: 'lastmodifieddate'
-                });
-                advertiserIndex[advertiser].lastUpdate = lastmodifieddate;
-            } else {
-                advertiserIndex[advertiser].lastUpdate = lastUpdate;
-            }
             productGroups.forEach(grp => {
                 advertiserIndex[advertiser][grp.id] = {};
                 advertiserIndex[advertiser][grp.id].recId = null;
@@ -379,6 +426,15 @@ define([
                 advertiserIndex[advertiser][grp.id].forecasted = 0;
                 advertiserIndex[advertiser][grp.id].probability = 0;
                 advertiserIndex[advertiser][grp.id].projected = 0;
+                let threeYrCol = summaryColumns.find(col => col.typeId == grp.id);
+                if (threeYrCol !== undefined) {
+                    let threeYrTotal = (isSummary) 
+                        ? res.getValue({name: threeYrCol.id})
+                        : res.getValue({name: threeYrCol.id, join: threeYrCol.join});
+                    advertiserIndex[advertiser][grp.id].threeyr = threeYrTotal;
+                } else {
+                    advertiserIndex[advertiser][grp.id].threeyr = 0;
+                }
             });
         }
     }
@@ -448,7 +504,6 @@ define([
             let displayEntry = JSON.parse(JSON.stringify(advertiserIndex[adv][productGroup.id]));
             displayEntry.advertiser = adv;
             displayEntry.advertiserName = advertiserIndex[adv].name;
-            displayEntry.lastUpdate = advertiserIndex[adv].lastUpdate;
             advertiserResults.push(displayEntry);
         });
 
@@ -458,13 +513,14 @@ define([
         {
             '1': [ // product group id
                 {
-                    'id': 1, // id of revenue forecast record or null
+                    'recId': 1, // id of revenue forecast record or null
                     'advertiser': 1, //clientId
                     'advertiserName': 'companyname'
                     'sold': 1000,
                     'forecasted': 1000,
                     'probability': 0.5,
-                    'projected': 1500
+                    'projected': 1500,
+                    'threeyr': 5500
                 } //,...
             ]
         }
@@ -479,9 +535,7 @@ define([
         });
         // TODO find better way to display these totals and projections
 
-
-        const columns = forecastFields;
-        columns.forEach(id => {
+        forecastFields.forEach(id => {
             const field = list.addField(id);
             // extras for input fields
             
@@ -508,6 +562,7 @@ define([
                         && field.line === index
                     );
                 });
+
                 if (fieldIndex !== -1) {
                     if (key == 'projected') {
                         let valueDiff = editedFields[fieldIndex].value - value;
@@ -521,16 +576,6 @@ define([
                         id: 'scriptid',
                         line: index,
                         value: value || 0
-                    });
-                    return;
-                }
-                if (key === 'lastUpdate') {
-                    let jsDate = (value) ? new Date(value) : new Date();
-                    let nsDate = jsDate.getMonth() + 1 + '/' + jsDate.getDate() + '/' + jsDate.getFullYear();
-                    list.setSublistValue({
-                        id: 'lastmodifieddate',
-                        line: index,
-                        value: nsDate
                     });
                     return;
                 }
