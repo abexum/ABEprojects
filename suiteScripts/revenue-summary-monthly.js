@@ -2,10 +2,7 @@ define([
     "N/search",
     "N/record",
     "N/runtime",
-    "N/log",
-    "N/task",
-    "N/format",
-    "../sales-forecast/FCUtil"
+    "N/log"
 ], function (s, record, runtime, log) {
 
     /**
