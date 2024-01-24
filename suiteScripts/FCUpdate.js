@@ -38,6 +38,8 @@ function (runtime, record, log) {
             try {
                 if (entry.type == 'customrecord_revenue_forecast') {
                     updateRevenueForecasts(entry);
+                } else if (entry.type == 'customrecord_revenue_year') {
+                    updateRevenueYear(entry);
                 } else {
                     setTransactionRecordValues(entry);
                 }
@@ -203,6 +205,24 @@ function (runtime, record, log) {
         var savedRecordId = revRecord.save();
         log.audit({ title: 'Updated Revenue Forecast Record', details:  savedRecordId });
     }
+
+    const updateRevenueYear = (recEntry) => {
+        log.debug({title: 'revenue year Object', details: JSON.stringify(recEntry)});
+        let yearRecord = record.load({type: 'customrecord_revenue_year', id: recEntry.id});
+
+        // TODO fix record creation
+        Object.keys(recEntry).forEach(f => {
+            if (f === 'id' || f === 'type') return;
+            yearRecord.setValue({
+                fieldId: f,
+                value: recEntry[f]
+            });
+        });
+
+        var savedRecordId = yearRecord.save();
+        log.audit({ title: 'Updated Revenue Forecast Record', details:  savedRecordId });
+    }
+
     exports.execute = execute;
     return exports;
 });
