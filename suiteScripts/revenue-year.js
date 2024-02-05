@@ -61,12 +61,12 @@ define([
         },
         { 
             id: 'custrecord_rev_booked_total',
-            label: 'Booked Total',
+            label: 'Booked',
             type: ui.FieldType.CURRENCY
         },
         { 
             id: 'custrecord_rev_pitch_total',
-            label: 'Pitch total',
+            label: 'Pitch',
             type: ui.FieldType.CURRENCY
         },
         { 
@@ -149,12 +149,6 @@ define([
             label : 'Update Filters',
             functionName: 'performSearch'
         });
-        let saveButton = page.addButton({
-            id : 'custpage_saveButton',
-            label : 'Submit Reviewed',
-            functionName: 'save'
-        });
-        //saveButton.isDisabled = true;
 
         fillYearRecords(filter);
 
@@ -195,16 +189,20 @@ define([
             if (isSalesRep) salesRepSearchField.defaultValue = userId;
         }
 
-        const startDateField = page.addField({
-            id: 'custpage_startdate',
-            label: 'Start Date',
-            type: ui.FieldType.DATE,
+        const yearField = page.addField({
+            id: 'custpage_year',
+            label: 'Year',
+            type: ui.FieldType.TEXT,
             container: 'custpage_filtergroup'
         });
-        startDateField.updateBreakType({
-            breakType : ui.FieldBreakType.STARTCOL
-        });
-        startDateField.defaultValue = filter.startdate;
+
+        let year = parseInt(filter.year) || 0;
+        if (!year) {
+            const today = new Date();
+            year = parseInt(today.getFullYear());
+            if (today.getMonth() > 9) year++; // do next year if november +
+        }
+        yearField.defaultValue = year;
     }
 
     function calcSection(page, quota) {
@@ -274,9 +272,14 @@ define([
     // search the year records and join to the customer record
     // add empty index for matching salesrep
     function fillYearRecords(filter) {
-        const { salesrep, startdate } = filter;
+        let { salesrep, year } = filter;
         // TODO check this getter for year
-        const year = parseInt(startdate.getFullYear());
+        year = parseInt(year) || 0;
+        if (!year) {
+            const today = new Date();
+            year = parseInt(today.getFullYear());
+            if (today.getMonth() > 9) year++; // do next year if november +
+        }
 
         const searchFilter = [];
 
@@ -319,9 +322,7 @@ define([
     }
 
     function getFilter(request) {
-        const { salesrep, startdate, updatelogid } = request.parameters;
-
-        const startValue = FCUtil.defaultStart(startdate, 0);
+        const { salesrep, year, updatelogid } = request.parameters;
 
         if (updatelogid) {
             try {
@@ -360,7 +361,7 @@ define([
 
         return {
             salesrep: salesrep,
-            startdate: startValue
+            year: year
         }
     }
 
@@ -399,6 +400,12 @@ define([
             label : 'Year'
         });
 
+        list.addButton({
+            id : 'custpage_saveButton',
+            label : 'Submit Reviewed',
+            functionName: 'save'
+        });
+
         colFields.concat(additionalFields).forEach(field => {
             let fieldObj = list.addField(field);
             // extras for input fields
@@ -417,19 +424,12 @@ define([
                 let value = res[key];
                 // if field was edited update with the new value rather than one found in search
                 let fieldIndex = editedFields.findIndex(function(field) {
-                    // TODO fix this.  needs to capture pitch total and %s
                     return (field.fieldId === key
                         && field.line === index
                     );
                 });
 
-                if (fieldIndex !== -1) {
-                    // if (key == 'projected') {
-                    //     let valueDiff = editedFields[fieldIndex].value - value;
-                    //     calcs[productGroup.id].projected += valueDiff;
-                    // }
-                    value = editedFields[fieldIndex].value;
-                }
+                if (fieldIndex !== -1) value = editedFields[fieldIndex].value;
 
                 if (key === 'recId') {
                     list.setSublistValue({
@@ -460,7 +460,6 @@ define([
                             value: value || 0
                         });
                     }
-
                 }
             });
         });
@@ -497,21 +496,22 @@ define([
 
     function filterCSVlines(csvObjs, filter) {
         let filtered = [];
-        const { salesrep, property } = filter;
+        let { salesrep, year } = filter;
         const repName = FCUtil.getRepName(salesrep);
-        const propertyName = FCUtil.getPropertyName(property);
-        const month = filter.startdate.getMonth();
-        const year = filter.startdate.getFullYear();
+
+        year = parseInt(year) || 0;
+        if (!year) {
+            const today = new Date();
+            year = parseInt(today.getFullYear());
+        }
 
         csvObjs.forEach(line => {
             if (line.date) {
                 const date = new Date(line.date);
                 const hasYear = (year == date.getFullYear());
-                const hasMonth = filter.fullyear || (month == date.getMonth());
-                if (hasMonth && hasYear) {
+                if (hasYear) {
                     const hasRep = (repName && repName == line.salesrep);
-                    const hasProperty = (propertyName && propertyName == line.property)
-                    if (hasRep && hasProperty) filtered.push(line);
+                    if (hasRep) filtered.push(line);
                 }
             }
         });

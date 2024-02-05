@@ -85,7 +85,7 @@ define(['N/currentRecord', 'N/record'], function(cr, record) {
             editlog[recordIndex][fieldId] = value;
         }
 
-        addToEditFields(sublistId, line, fieldId, value)
+        addToEditFields(sublistId, line, fieldId, value);
     }
 
     function addToEditFields(sublistId, line, fieldId, value) {

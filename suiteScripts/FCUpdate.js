@@ -210,7 +210,7 @@ function (runtime, record, log) {
         log.debug({title: 'revenue year Object', details: JSON.stringify(recEntry)});
         let yearRecord = record.load({type: 'customrecord_revenue_year', id: recEntry.id});
 
-        // TODO fix record creation
+        // Revenue Year records are always updates, never new record creation
         Object.keys(recEntry).forEach(f => {
             if (f === 'id' || f === 'type') return;
             yearRecord.setValue({
@@ -220,7 +220,7 @@ function (runtime, record, log) {
         });
 
         var savedRecordId = yearRecord.save();
-        log.audit({ title: 'Updated Revenue Forecast Record', details:  savedRecordId });
+        log.audit({ title: 'Updated Revenue Year Record', details:  savedRecordId });
     }
 
     exports.execute = execute;

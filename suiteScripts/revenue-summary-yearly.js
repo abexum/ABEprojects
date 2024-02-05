@@ -50,7 +50,7 @@ define([
     const idLibrary = {};
 
     function execute() {
-        log.audit({title: 'Running Revenue Summary Monthly...'});
+        log.audit({title: 'Running Revenue Summary Yearly...'});
 
         const today = new Date();
         let year = parseInt(today.getFullYear());
@@ -69,27 +69,27 @@ define([
             let legacyPrint = parseFloat(res.getValue({
                 name: 'custrecord_legacy_print_3yr',
                 summary: s.Summary.SUM
-            }));
+            })) || 0;
             let legacyDigital = parseFloat(res.getValue({
                 name: 'custrecord_legacy_digital_3yr',
                 summary: s.Summary.SUM
-            }));
+            })) || 0;
             let demandGen = parseFloat(res.getValue({
                 name: 'custrecord_demand_gen_3yr',
                 summary: s.Summary.SUM
-            }));
+            })) || 0;
             let events = parseFloat(res.getValue({
                 name: 'custrecord_events_3yr',
                 summary: s.Summary.SUM
-            }));
+            })) || 0;
             let marketingServices = parseFloat(res.getValue({
                 name: 'custrecord_marketing_services_3yr',
                 summary: s.Summary.SUM
-            }));
+            })) || 0;
             let marketplace = parseFloat(res.getValue({
                 name: 'custrecord_marketplace_3yr',
                 summary: s.Summary.SUM
-            }));
+            })) || 0;
             let total = legacyPrint
                 + legacyDigital
                 + demandGen
@@ -129,10 +129,12 @@ define([
                     name: 'custrecord_revenue_forecast_advertiser',
                     summary: s.Summary.GROUP
                 });
-                // log.debug({
-                //     title: 'result JSON for client id ' +  clientId, 
-                //     details: JSON.stringify(res)
-                // });
+                if (clientId == '26591') {
+                    log.debug({
+                        title: 'result JSON for client id ' +  clientId, 
+                        details: JSON.stringify(res)
+                    });
+                }
 
                 if (!clientId) return; // skip the grand total
 
@@ -243,8 +245,22 @@ define([
                 fieldId: 'custrecord_rev_year_perc_marketplace',
                 value: yearTotals[client]['custrecord_rev_year_perc_marketplace']
             });
-
-            yearRecord.save();
+            try {
+                yearRecord.save();
+            } catch (ex) {
+                log.debug({
+                    title: 'error saving record idlibrary',
+                    details: JSON.stringify(idLibrary[client])
+                });
+                log.debug({
+                    title: 'error saving record yeartotals',
+                    details: JSON.stringify(yearTotals[client])
+                });
+                log.error({
+                    title: 'exception caught saving record for client ' + client, 
+                    details: JSON.stringify(ex)
+                });
+            }
         }
 
         const scriptObj = runtime.getCurrentScript();
