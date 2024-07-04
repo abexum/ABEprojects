@@ -63,7 +63,6 @@ define([
     const propertyList = [];
     const summaryLibrary = {};
     const backfillMonthTotal = 1;
-    const backfillLookbackMonths = 1;
     const cleanupMode = 0;
 
     function execute(context) {
@@ -131,6 +130,7 @@ define([
 
     function getFilter() {
         const startdate = runtime.getCurrentScript().getParameter({name: 'custscript_revbackfill_startdate'});
+        const backfillLookbackMonths = runtime.getCurrentScript().getParameter({name: 'custscript_lookback_months'});
         
         if (startdate) return {startdate: startdate};
         const now = new Date();
